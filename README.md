@@ -24,4 +24,4 @@ ticket → API (FastAPI on Lambda) → SQS → worker Lambda
 | Infrastructure | Terraform | open source |
 | CI/CD | GitHub Actions + AWS OIDC | free on public repos |
 
-Status: Phase 0 accounts · Phase 1 agent · Phase 2 guardrails are done. Learning notes for each phase are in [`docs/guide/`](docs/guide/).
+Status: Phases 0–3 are done (accounts, agent, guardrails, evals with Langfuse). Learning notes for each phase are in [`docs/guide/`](docs/guide/).

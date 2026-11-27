@@ -14,7 +14,11 @@ from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
 
-KB_DIR = Path(__file__).resolve().parents[2] / "data" / "kb"
+_HERE = Path(__file__).resolve()
+# Local checkout: <repo>/src/triage/knowledge.py -> <repo>/data/kb. Lambda zip: /var/task/data/kb.
+KB_DIR = next(
+    p / "data" / "kb" for p in (_HERE.parents[2], _HERE.parents[1]) if (p / "data").exists()
+)
 STOPWORDS = frozenset(
     "a an the i my me is are was were be been to of in on for and or but it this that with "
     "you your we our can how what why when where do does did not have has had from at".split()
@@ -25,12 +29,14 @@ STOPWORDS = frozenset(
 class Article:
     id: str
     title: str
-    category: str
+    categories: tuple[str, ...]
     body: str
 
 
 def _tokens(text: str) -> set[str]:
-    return {w for w in re.findall(r"[a-z0-9]+", text.lower()) if w not in STOPWORDS}
+    # Fold simple plurals so "payments" matches "payment". Real systems use stemming or embeddings.
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    return {w[:-1] if len(w) > 3 and w.endswith("s") else w for w in words if w not in STOPWORDS}
 
 
 @cache
@@ -39,9 +45,10 @@ def load_articles(kb_dir: Path = KB_DIR) -> tuple[Article, ...]:
     for path in sorted(kb_dir.glob("*.md")):
         text = path.read_text(encoding="utf-8")
         title = text.splitlines()[0].lstrip("# ").strip()
-        category = re.search(r"^Category:\s*(\S+)", text, re.MULTILINE).group(1)
+        line = re.search(r"^Categor(?:y|ies):\s*(.+)$", text, re.MULTILINE).group(1)
+        categories = tuple(c.strip() for c in line.split(","))
         article_id = "-".join(path.stem.split("-")[:2])  # kb-001-card-declined -> kb-001
-        articles.append(Article(article_id, title, category, text))
+        articles.append(Article(article_id, title, categories, text))
     return tuple(articles)
 
 
@@ -51,7 +58,7 @@ def search(text: str, category: str | None = None, k: int = 3) -> list[Article]:
     scored = []
     for article in load_articles():
         score = len(query & _tokens(article.title + " " + article.body))
-        if category and article.category == category:
+        if category and category in article.categories:
             score += 3
         if score > 0:
             scored.append((score, article))

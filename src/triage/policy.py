@@ -16,10 +16,13 @@ def decide(
     *,
     injection_reasons: list[str] = (),
     output_problems: list[str] = (),
+    scam_signals: list[str] = (),
 ) -> tuple[Action, list[str]]:
     if injection_reasons:  # never act on a ticket that tried to hijack the agent
         return Action.escalate, ["possible prompt injection: " + "; ".join(injection_reasons)]
     reasons = list(output_problems)
+    if scam_signals:
+        reasons.append(f"possible scam ({', '.join(scam_signals)}): fraud team must review")
     if classification.category in ALWAYS_HUMAN:
         reasons.append(f"category '{classification.category}' always goes to a human")
     if classification.confidence < MIN_CONFIDENCE:

@@ -14,13 +14,16 @@ took is visible in the decision trace and in Langfuse.
                       └─(unknown)──────────────────────────→ policy → END
 """
 
+import time
 import uuid
 from typing import TypedDict
 
+from langchain_core.callbacks import get_usage_metadata_callback
 from langgraph.graph import END, START, StateGraph
 
 from triage import guardrails, knowledge, policy
-from triage.llm import TriageLLM
+from triage.llm import TriageLLM, cost_usd
+from triage.prompts import PROMPT_VERSION
 from triage.schemas import Category, Classification, Draft, TriageResult, Urgency
 
 
@@ -91,6 +94,7 @@ def build_graph(llm: TriageLLM):
             d,
             injection_reasons=state.get("injection_reasons", []),
             output_problems=guardrails.output_violations(d.reply) if d else [],
+            scam_signals=guardrails.scam_signals(state["text"]),
         )
         trace = state["trace"] + [
             f"policy: {action}" + (f" because {'; '.join(reasons)}" if reasons else "")
@@ -104,6 +108,7 @@ def build_graph(llm: TriageLLM):
             escalation_reasons=reasons,
             reply=d.reply if d else "Thanks for getting in touch. A specialist will reply shortly.",
             cited_article_ids=d.cited_article_ids if d else [],
+            retrieved_article_ids=[a.id for a in state.get("articles", [])],
             missing_info=d.missing_info if d else [],
             pii_redacted=state.get("pii_found", []),
             injection_flagged=bool(state.get("injection_reasons")),
@@ -135,9 +140,31 @@ def build_graph(llm: TriageLLM):
 
 
 def triage(text: str, llm: TriageLLM, ticket_id: str | None = None, config=None) -> TriageResult:
+    """Run one ticket through the graph and attach cost, latency and version metadata.
+
+    `config` is LangChain's run config. Pass `{"callbacks": [langfuse_handler]}` to trace the
+    run; every LLM call made inside the graph inherits it automatically.
+    """
     graph = build_graph(llm)
-    state = graph.invoke(
-        {"ticket_id": ticket_id or uuid.uuid4().hex[:8], "text": text, "trace": []},
-        config=config,
+    limiter = getattr(llm, "limiter", None)
+    waited_before = limiter.waited() if limiter else 0.0
+    started = time.perf_counter()
+    with get_usage_metadata_callback() as usage:  # adds up tokens across every LLM call
+        state = graph.invoke(
+            {"ticket_id": ticket_id or uuid.uuid4().hex[:8], "text": text, "trace": []},
+            config=config,
+        )
+    queued = (limiter.waited() if limiter else 0.0) - waited_before
+    tokens_in = sum(u["input_tokens"] for u in usage.usage_metadata.values())
+    tokens_out = sum(u["output_tokens"] for u in usage.usage_metadata.values())
+    return state["result"].model_copy(
+        update={
+            "model_id": llm.model_id,
+            "prompt_version": PROMPT_VERSION,
+            "input_tokens": tokens_in,
+            "output_tokens": tokens_out,
+            "cost_usd": cost_usd(llm.model_id, tokens_in, tokens_out),
+            "latency_ms": int((time.perf_counter() - started - queued) * 1000),
+            "queued_ms": int(queued * 1000),
+        }
     )
-    return state["result"]

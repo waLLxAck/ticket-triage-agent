@@ -92,6 +92,15 @@ class TriageResult(BaseModel):
     reply: str
     cited_article_ids: list[str]
     missing_info: list[str]
+    retrieved_article_ids: list[str] = []
     pii_redacted: list[str] = []  # types of personal data removed before the LLM saw the ticket
     injection_flagged: bool = False
     decision_trace: list[str]  # human-readable log of every step, for auditors and debugging
+    # Operational metadata: what it cost, how long it took, which model and prompt produced it.
+    model_id: str = ""
+    prompt_version: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
+    latency_ms: int = 0  # processing time, excluding time queued for a rate-limit slot
+    queued_ms: int = 0

@@ -61,7 +61,8 @@ def redact(text: str) -> tuple[str, list[str]]:
 _INJECTION_PATTERNS = [
     r"ignore (all |any |the |your |previous |prior |above )+(instructions|rules|prompts?)",
     r"disregard (all |any |the |your |previous |prior )*(instructions|rules|guidelines)",
-    r"(reveal|show|print|repeat) (me )?(your|the) (system )?(prompt|instructions)",
+    # "your/system" required: "show me the instructions for disputing" is a normal request
+    r"(reveal|show|print|repeat) (me )?(the text of )?(your (system )?|the system )(prompt|instructions)",
     r"\byou are now\b",
     r"\b(developer|admin|god|jailbreak|DAN) mode\b",
     r"\bact as (an? )?(admin|supervisor|manager|system)\b",
@@ -77,6 +78,22 @@ def injection_heuristics(text: str) -> list[str]:
     return [m.group() for m in _INJECTION_RE.finditer(text)]
 
 
+# --- Scam signals ------------------------------------------------------------------------------
+
+_SCAM_SIGNALS = re.compile(
+    r"\b(is (it|this|that) (genuine|real|legit)|was (that|it) (really )?you|safe account"
+    r"|(text|sms|email|call|message|whatsapp)\b.{0,60}\b(link|pin|verify|unlock|card details)"
+    r"|(link|pin|verify|unlock)\b.{0,60}\b(text|sms|email|call|message|whatsapp))",
+    re.IGNORECASE,
+)
+
+
+def scam_signals(text: str) -> list[str]:
+    """Phrases suggesting the customer may be the target of a scam. Safety-critical, so this is a
+    deterministic rule that backs up the classifier prompt instead of trusting it alone."""
+    return [m.group() for m in _SCAM_SIGNALS.finditer(text)]
+
+
 # --- 3. Output checks --------------------------------------------------------------------------
 
 _FORBIDDEN_PROMISES = re.compile(
@@ -89,6 +106,14 @@ _FORBIDDEN_PROMISES = re.compile(
 )
 
 
+# Banks never tell customers to use a link they were sent, or to share secrets.
+_UNSAFE_ADVICE = re.compile(
+    r"\b(click|follow|tap|use|open) (on )?(the|this|that) link\b"
+    r"|\b(send|share|give|tell) (us |me )?(your )?(pin|password|full card number)\b",
+    re.IGNORECASE,
+)
+
+
 def output_violations(reply: str) -> list[str]:
     """Problems with a drafted reply that mean a human must look at it before it's sent."""
     problems = []
@@ -97,4 +122,6 @@ def output_violations(reply: str) -> list[str]:
         problems.append(f"reply contains personal data ({', '.join(sorted(set(pii)))})")
     if m := _FORBIDDEN_PROMISES.search(reply):
         problems.append(f"reply makes a promise only a human may make: '{m.group()}'")
+    if m := _UNSAFE_ADVICE.search(reply):
+        problems.append(f"reply gives unsafe advice: '{m.group()}'")
     return problems
