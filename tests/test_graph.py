@@ -150,3 +150,41 @@ def test_answer_without_a_verbatim_quote_is_escalated():
     r = triage("fee for receiving money?", FakeLLM(c(Category.fees_limits), draft))
     assert r.action == Action.escalate
     assert any("verbatim quote" in reason for reason in r.escalation_reasons)
+
+
+FREEZE_DRAFT = Draft(
+    answerable=True,
+    reply="Freeze the card straight away under Cards, then Freeze.",
+    cited_article_ids=["kb-007"],
+    supporting_quotes=["Freeze the card straight away under Cards → Freeze."],
+)
+
+
+def test_cr002_lost_card_gets_freeze_steps_even_when_urgent():
+    r = triage(
+        "Lost my card!", FakeLLM(c(Category.card_payment, urgency=Urgency.high), FREEZE_DRAFT)
+    )
+    assert r.action == Action.auto_resolve
+
+
+def test_cr002_other_urgent_card_tickets_still_go_to_a_human():
+    # Attempt 1 dropped the urgency rule; the eval gate caught urgent-02 being auto-resolved.
+    declined = Draft(
+        answerable=True,
+        reply="Check Cards, then Card status.",
+        cited_article_ids=["kb-001"],
+        supporting_quotes=["Check Cards → Card status in the app."],
+    )
+    r = triage(
+        "Rent due in an hour, card declined!",
+        FakeLLM(c(Category.card_payment, urgency=Urgency.high), declined),
+    )
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
+
+
+def test_cr002_fast_path_never_applies_to_fraud():
+    r = triage(
+        "Card stolen, payments I don't recognise",
+        FakeLLM(c(Category.fraud_report, urgency=Urgency.high), FREEZE_DRAFT),
+    )
+    assert r.action == Action.escalate
