@@ -92,3 +92,10 @@ def test_output_check_blocks_links_and_article_ids():
     assert output_violations("More at www.acme-pay-help.com")
     assert output_violations("As explained in kb-002, the pending charge drops off.")
     assert output_violations("Go to Activity, select the payment, then Report a problem.") == []
+
+
+def test_negated_advice_is_safe_advice():
+    # The CR-001 eval run: these correct warnings were flagged as unsafe.
+    assert output_violations("Please do not click on the link. It may be a phishing attempt.") == []
+    assert output_violations("Never share your PIN with anyone.") == []
+    assert output_violations("Click the link we sent to confirm.")

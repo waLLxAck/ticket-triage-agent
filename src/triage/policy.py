@@ -4,6 +4,7 @@ This is the most important idea in production agents: the model *proposes*, dete
 rules *dispose*. Rules are cheap, auditable, and a regulator can read them.
 """
 
+from triage.knowledge import quote_is_verbatim
 from triage.schemas import Action, Category, Classification, Draft, Urgency
 
 ALWAYS_HUMAN = {Category.fraud_report, Category.complaint, Category.unknown}
@@ -33,4 +34,10 @@ def decide(
         reasons.append("help centre doesn't cover it")
     if draft is not None and draft.answerable and not draft.cited_article_ids:
         reasons.append("reply cites no article (possible hallucination)")
+    elif (
+        draft is not None
+        and draft.answerable
+        and not any(quote_is_verbatim(q, draft.cited_article_ids) for q in draft.supporting_quotes)
+    ):
+        reasons.append("reply has no verbatim quote from its cited articles")
     return (Action.escalate if reasons else Action.auto_resolve), reasons
