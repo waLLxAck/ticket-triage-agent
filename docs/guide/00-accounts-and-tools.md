@@ -51,3 +51,20 @@ tool call and guardrail check), each with its inputs, outputs, latency, tokens a
 also stores **datasets** (our labelled test tickets) and **scores** (eval results), so you can
 compare one prompt or model version against the next. Hobby is free: 50k units a month, where
 traces, observations and scores each count as units.
+
+## What actually happened (November 2026)
+
+- Signing up through an **AWS Builder ID** puts you in AWS's new "project" experience. AWS
+  created account `771992926287` with the project's home Region set to **eu-north-1
+  (Stockholm)**. Instead of a root user and a separate IAM user, your console session takes on a
+  role called `AccountFullAccessRole`. The principle of a temporary role instead of permanent
+  keys is the same one we'll use for GitHub.
+- `aws login` reuses that browser session and writes **short-lived, auto-refreshing**
+  credentials to `~/.aws/login/`. Python needs `botocore[crt]` installed to read them (it's a
+  dev-only dependency; Lambda gets its credentials from its own role).
+- `aws freetier get-account-plan-state` shows `FREE / ACTIVE`, with $100 of credits, expiring
+  27 May 2027.
+- Bedrock in London (eu-west-2) returned "account is being verified", while Stockholm worked
+  straight away. New accounts get their home Region first. We run in **eu-north-1**, which is
+  still in the EU and therefore fine for UK GDPR adequacy. That's the same data-residency
+  conversation you'd have with a fintech client.

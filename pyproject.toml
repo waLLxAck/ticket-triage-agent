@@ -11,6 +11,7 @@ dependencies = [
     "langgraph>=1.2.24",
     "mangum>=0.22.0",
     "pydantic>=2.14.4",
+    "python-dotenv>=1.2.4",
 ]
 
 [project.scripts]
@@ -29,6 +30,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "botocore[crt]>=1.44.12",
     "pytest>=9.2.0",
     "ruff>=0.17.6",
     "uvicorn>=0.54.0",

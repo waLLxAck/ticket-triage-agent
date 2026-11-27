@@ -56,3 +56,18 @@ like with like.
 uv run pytest -q                                    # unit tests, no AWS needed
 uv run triage "I was charged twice for a coffee"     # real run, needs AWS (aws login)
 ```
+
+## First live run (Nova Lite, eu-north-1)
+
+| Ticket | Result | Why |
+|---|---|---|
+| "My coffee shows up twice" | `card_payment`, 0.90 → **auto_resolve**, cites kb-002 | Confident, answerable, grounded |
+| "Three casino payments I never made" | `fraud_report`, high → **escalate** | Fraud always goes to a human, and the help centre doesn't cover it |
+| "What's the weather in Leeds?" | `unknown` → **escalate**, drafting skipped | Out of scope, so the conditional edge skipped the draft step |
+
+Each run took about 3 seconds and two LLM calls, at a cost of roughly $0.0002 each.
+
+**A weakness to note:** for the fraud ticket, retrieval returned kb-003, kb-004 and kb-005,
+none of which is relevant. The most relevant article is kb-007 ("report fraud"), and it was
+missed. Keyword retrieval is brittle. The eval suite in Phase 3 will put a number on this, and
+we'll fix it the way you would on a contract: measure, change, and measure again.
