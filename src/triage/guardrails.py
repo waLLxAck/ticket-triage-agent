@@ -109,6 +109,7 @@ _FORBIDDEN_PROMISES = re.compile(
 # Banks never tell customers to use a link they were sent, or to share secrets.
 _UNSAFE_ADVICE = re.compile(
     r"\b(click|follow|tap|use|open) (on )?(the|this|that) link\b"
+    r"|\b(click|tap)(ing)? (here|below)\b"
     r"|\b(send|share|give|tell) (us |me )?(your )?(pin|password|full card number)\b",
     re.IGNORECASE,
 )
