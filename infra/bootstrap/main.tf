@@ -190,9 +190,11 @@ resource "aws_iam_role_policy" "gha_deploy" {
     Version = "2012-10-17"
     Statement = [
       {
-        Sid      = "StateAndArtefacts"
-        Effect   = "Allow"
-        Action   = ["s3:ListBucket", "s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:GetBucketLocation"]
+        Sid    = "StateAndArtefacts"
+        Effect = "Allow"
+        # Object* covers tagging and ACL reads that Terraform does on every S3 object it manages
+        # (found by the first CI deploys: AccessDenied on s3:GetObjectTagging, then s3:ListBucketVersions).
+        Action   = ["s3:ListBucket*", "s3:GetBucketLocation", "s3:GetObject*", "s3:PutObject*", "s3:DeleteObject*"]
         Resource = [aws_s3_bucket.state.arn, "${aws_s3_bucket.state.arn}/*"]
       },
       {
