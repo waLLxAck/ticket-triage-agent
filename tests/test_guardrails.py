@@ -84,3 +84,11 @@ def test_output_check_blocks_unsafe_advice():
     # Found by the baseline eval (fraud-05): the agent told a phishing victim to follow the link.
     assert output_violations("To unlock your account, follow the link provided in the text.")
     assert output_violations("Please send us your PIN so we can check.")
+
+
+def test_output_check_blocks_links_and_article_ids():
+    # CR-001: found in the production smoke test.
+    assert output_violations("See our article [kb-002](https://example.com/kb-002).")
+    assert output_violations("More at www.acme-pay-help.com")
+    assert output_violations("As explained in kb-002, the pending charge drops off.")
+    assert output_violations("Go to Activity, select the payment, then Report a problem.") == []
