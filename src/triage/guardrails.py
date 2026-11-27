@@ -127,7 +127,7 @@ _LINKS_OR_IDS = re.compile(
 # "Please do not click the link" are safe. In "Do not wait; share your PIN" or "Do not hesitate
 # to share your PIN", the negation belongs to another verb, so the instruction is still unsafe.
 # (Two rounds of code review on PR #3 found those bypasses.)
-_NEGATION = re.compile(r"\b(not|never|don't|avoid)\s+$", re.IGNORECASE)
+_NEGATION = re.compile(r"\b(not|never|don't|don’t|avoid)\s+$", re.IGNORECASE)
 
 
 def output_violations(reply: str) -> list[str]:

@@ -229,3 +229,23 @@ def test_cr002_fast_path_requires_freeze_guidance_in_the_reply():
     )
     r = triage("urgent", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
     assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
+
+
+def test_cr002_negated_freeze_does_not_count_as_freeze_guidance():
+    # PR #3 review, round 3.
+    from triage.policy import tells_customer_to_freeze
+
+    assert not tells_customer_to_freeze("Don't freeze your card; check Cards, then Card status.")
+    assert not tells_customer_to_freeze("Don’t freeze it yet.")
+    assert tells_customer_to_freeze("Freeze the card straight away under Cards, then Freeze.")
+    draft = Draft(
+        answerable=True,
+        reply="Don't freeze your card; check Cards, then Card status.",
+        cited_article_ids=["kb-001", "kb-007"],
+        supporting_quotes=[
+            "Check Cards → Card status in the app.",
+            "Freeze the card straight away under Cards → Freeze.",
+        ],
+    )
+    r = triage("urgent", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons

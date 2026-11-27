@@ -20,6 +20,16 @@ MIN_CONFIDENCE = 0.7
 # tickets being auto-resolved.)
 LOST_CARD_ARTICLE = "kb-007"
 FREEZE_INSTRUCTION = re.compile(r"\bfreez(e|ing)\b", re.IGNORECASE)
+_NEGATED = re.compile(r"\b(not|never|don't|don’t|avoid|no need to)\s+$", re.IGNORECASE)
+
+
+def tells_customer_to_freeze(reply: str) -> bool:
+    """True if the reply contains an affirmative freeze instruction. "Don't freeze your card"
+    mentions freezing but says the opposite (code review, round 3)."""
+    return any(
+        not _NEGATED.search(reply[max(0, m.start() - 25) : m.start()])
+        for m in FREEZE_INSTRUCTION.finditer(reply)
+    )
 
 
 def lost_card_fast_path(c: Classification, d: Draft | None, scam_signals, output_problems) -> bool:
@@ -31,7 +41,7 @@ def lost_card_fast_path(c: Classification, d: Draft | None, scam_signals, output
         and d is not None
         and d.answerable
         and any(quote_is_verbatim(q, [LOST_CARD_ARTICLE]) for q in d.supporting_quotes)
-        and FREEZE_INSTRUCTION.search(d.reply) is not None  # the reply itself must say "freeze"
+        and tells_customer_to_freeze(d.reply)  # the reply itself must say to freeze
         and not scam_signals
         and not output_problems
     )

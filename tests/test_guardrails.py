@@ -118,3 +118,7 @@ def test_negation_of_a_different_verb_does_not_excuse_unsafe_advice():
     # PR #3 review, round 2.
     assert output_violations("Do not hesitate to share your PIN.")
     assert output_violations("Please do not click on the link.") == []
+
+
+def test_curly_apostrophe_negation():
+    assert output_violations("Please don’t click the link.") == []
