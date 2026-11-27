@@ -107,6 +107,7 @@ def build_graph(llm: TriageLLM):
             action=action,
             escalation_reasons=reasons,
             reply=d.reply if d else "Thanks for getting in touch. A specialist will reply shortly.",
+            drafted=d is not None,
             cited_article_ids=d.cited_article_ids if d else [],
             retrieved_article_ids=[a.id for a in state.get("articles", [])],
             missing_info=d.missing_info if d else [],

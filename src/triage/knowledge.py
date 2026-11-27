@@ -52,6 +52,24 @@ def load_articles(kb_dir: Path = KB_DIR) -> tuple[Article, ...]:
     return tuple(articles)
 
 
+def quote_is_verbatim(quote: str, article_ids: list[str]) -> bool:
+    """True if the quote appears, word for word (ignoring case and whitespace), in a cited article.
+
+    This turns "is the reply grounded?" from a judgement call into something code can check.
+    It doesn't prove the quote *supports* the reply, but a model that has to produce a real
+    quote tends to answer "not answerable" instead of inventing a policy.
+    """
+
+    def norm(s: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9£%.,'-]+", s.lower())).strip(" .")
+
+    q = norm(quote)
+    if len(q) < 12:
+        return False  # "you can" is not evidence
+    by_id = {a.id: a for a in load_articles()}
+    return any(q in norm(by_id[i].body) for i in article_ids if i in by_id)
+
+
 def search(text: str, category: str | None = None, k: int = 3) -> list[Article]:
     """Return up to k articles, best first. Same-category articles get a boost."""
     query = _tokens(text)

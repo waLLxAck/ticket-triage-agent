@@ -24,4 +24,4 @@ ticket → API (FastAPI on Lambda) → SQS → worker Lambda
 | Infrastructure | Terraform | open source |
 | CI/CD | GitHub Actions + AWS OIDC | free on public repos |
 
-Status: Phases 0–5 are done (accounts, agent, guardrails, evals with Langfuse, AWS via Terraform, CI/CD with OIDC). Learning notes for each phase are in [`docs/guide/`](docs/guide/).
+Status: all six phases are done, including the simulated contract (SOW, two change requests, code review, runbook) in [`docs/contract/`](docs/contract/). Learning notes for each phase are in [`docs/guide/`](docs/guide/).

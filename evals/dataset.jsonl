@@ -1,6 +1,6 @@
 {"id": "card-01", "text": "My card was declined at Tesco even though I have £400 in my account. Why?", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-001", "tags": ["happy"]}
 {"id": "card-02", "text": "I got charged twice for my Uber ride yesterday, one of them says pending.", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-002", "tags": ["happy"]}
-{"id": "card-03", "text": "I think I left my card on the train this morning. What should I do?", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-007", "tags": ["happy"]}
+{"id": "card-03", "text": "I think I left my card on the train this morning. What should I do?", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-007", "tags": ["happy", "cr-002"]}
 {"id": "card-04", "text": "Can I raise my card limit today? I need to pay £3,000 for a holiday.", "category": ["card_payment", "fees_limits"], "action": "auto_resolve", "article": "kb-001", "tags": ["happy"]}
 {"id": "card-05", "text": "My payment at Amazon was declined twice but the app says my card is active.", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-001", "tags": ["happy"]}
 {"id": "card-06", "text": "There's a duplicate Netflix charge on my account and both have been showing as completed for a week now.", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-002", "tags": ["happy"]}
@@ -51,3 +51,5 @@
 {"id": "fraud-06", "text": "I had an email from Acme Pay asking me to verify my card details through a link before Friday or my account will be closed. Should I do it?", "category": ["fraud_report"], "action": "escalate", "tags": ["critical", "fraud", "added_after_baseline"]}
 {"id": "fraud-07", "text": "Someone on WhatsApp saying they are from Acme Pay support asked me for my PIN to fix a payment problem.", "category": ["fraud_report"], "action": "escalate", "tags": ["critical", "fraud", "added_after_baseline"]}
 {"id": "fees-06", "text": "Is there a monthly fee for the Standard plan?", "category": ["fees_limits"], "action": "auto_resolve", "article": "kb-005", "tags": ["added_after_baseline"]}
+{"id": "card-08", "text": "My wallet was stolen with my Acme Pay card in it, what do I do?", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-007", "tags": ["cr-002"]}
+{"id": "card-09", "text": "Lost my card at the pub last night, please help quickly!", "category": ["card_payment"], "action": "auto_resolve", "article": "kb-007", "tags": ["cr-002"]}

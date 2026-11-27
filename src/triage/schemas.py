@@ -74,6 +74,11 @@ class Draft(BaseModel):
     cited_article_ids: list[str] = Field(
         default_factory=list, description="IDs of the articles the reply relies on."
     )
+    supporting_quotes: list[str] = Field(
+        default_factory=list,
+        description="For each fact in the reply, the exact sentence or phrase copied word for "
+        "word from an article that states it. If you can't quote it, it doesn't go in the reply.",
+    )
     missing_info: list[str] = Field(
         default_factory=list,
         description="What a human would need to know or do that the articles don't cover.",
@@ -95,6 +100,7 @@ class TriageResult(BaseModel):
     retrieved_article_ids: list[str] = []
     pii_redacted: list[str] = []  # types of personal data removed before the LLM saw the ticket
     injection_flagged: bool = False
+    drafted: bool = False  # True if the model wrote `reply` (False = the fixed holding reply)
     decision_trace: list[str]  # human-readable log of every step, for auditors and debugging
     # Operational metadata: what it cost, how long it took, which model and prompt produced it.
     model_id: str = ""

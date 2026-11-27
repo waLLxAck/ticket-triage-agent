@@ -35,7 +35,12 @@ def c(category, confidence=0.9, urgency=Urgency.low):
     )
 
 
-GOOD_DRAFT = Draft(answerable=True, reply="Here's how...", cited_article_ids=["kb-002"])
+GOOD_DRAFT = Draft(
+    answerable=True,
+    reply="Here's how...",
+    cited_article_ids=["kb-002"],
+    supporting_quotes=["The pending one drops off automatically within 3–5 working days."],
+)
 
 
 def test_confident_answerable_ticket_is_auto_resolved():
@@ -132,3 +137,123 @@ def test_rate_limiter_allows_a_burst_then_paces():
     assert limiter.waited() == pytest.approx(2.0)
     with pytest.raises(ValueError):
         RateLimiter(per_minute=0)
+
+
+def test_answer_without_a_verbatim_quote_is_escalated():
+    # The CR-001 eval run: "We do not charge a fee for receiving money from abroad" was auto-sent.
+    draft = Draft(
+        answerable=True,
+        reply="We do not charge a fee for receiving money from abroad.",
+        cited_article_ids=["kb-005"],
+        supporting_quotes=["We do not charge a fee for receiving money from abroad."],
+    )
+    r = triage("fee for receiving money?", FakeLLM(c(Category.fees_limits), draft))
+    assert r.action == Action.escalate
+    assert any("verbatim" in reason for reason in r.escalation_reasons)
+
+
+FREEZE_DRAFT = Draft(
+    answerable=True,
+    reply="Freeze the card straight away under Cards, then Freeze.",
+    cited_article_ids=["kb-007"],
+    supporting_quotes=["Freeze the card straight away under Cards → Freeze."],
+)
+
+
+def test_cr002_lost_card_gets_freeze_steps_even_when_urgent():
+    r = triage(
+        "Lost my card!", FakeLLM(c(Category.card_payment, urgency=Urgency.high), FREEZE_DRAFT)
+    )
+    assert r.action == Action.auto_resolve
+
+
+def test_cr002_other_urgent_card_tickets_still_go_to_a_human():
+    # Attempt 1 dropped the urgency rule; the eval gate caught urgent-02 being auto-resolved.
+    declined = Draft(
+        answerable=True,
+        reply="Check Cards, then Card status.",
+        cited_article_ids=["kb-001"],
+        supporting_quotes=["Check Cards → Card status in the app."],
+    )
+    r = triage(
+        "Rent due in an hour, card declined!",
+        FakeLLM(c(Category.card_payment, urgency=Urgency.high), declined),
+    )
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
+
+
+def test_cr002_fast_path_never_applies_to_fraud():
+    r = triage(
+        "Card stolen, payments I don't recognise",
+        FakeLLM(c(Category.fraud_report, urgency=Urgency.high), FREEZE_DRAFT),
+    )
+    assert r.action == Action.escalate
+
+
+def test_cr002_citing_kb007_without_freeze_quote_is_not_fast_pathed():
+    # PR #3 review: a declined-card answer citing kb-001 and kb-007 must not skip the urgency rule.
+    draft = Draft(
+        answerable=True,
+        reply="Check Cards, then Card status.",
+        cited_article_ids=["kb-001", "kb-007"],
+        supporting_quotes=["Check Cards → Card status in the app."],
+    )
+    r = triage("urgent decline", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
+
+
+def test_every_supporting_quote_must_be_verbatim():
+    draft = Draft(
+        answerable=True,
+        reply="Freeze it. Also, fees are zero.",
+        cited_article_ids=["kb-007"],
+        supporting_quotes=[
+            "Freeze the card straight away under Cards → Freeze.",
+            "Fees are £0 for everyone.",
+        ],
+    )
+    r = triage("lost card", FakeLLM(c(Category.card_payment), draft))
+    assert r.action == Action.escalate
+
+
+def test_cr002_fast_path_requires_freeze_guidance_in_the_reply():
+    # PR #3 review, round 2: valid quotes from both articles, but the reply never says "freeze".
+    draft = Draft(
+        answerable=True,
+        reply="Check Cards, then Card status.",
+        cited_article_ids=["kb-001", "kb-007"],
+        supporting_quotes=[
+            "Check Cards → Card status in the app.",
+            "Freeze the card straight away under Cards → Freeze.",
+        ],
+    )
+    r = triage("urgent", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
+
+
+def test_cr002_negated_freeze_does_not_count_as_freeze_guidance():
+    # PR #3 review, round 3.
+    from triage.policy import tells_customer_to_freeze
+
+    assert not tells_customer_to_freeze("Don't freeze your card; check Cards, then Card status.")
+    assert not tells_customer_to_freeze("Don’t freeze it yet.")
+    assert not tells_customer_to_freeze("Please do not immediately freeze your card.")  # round 4
+    assert not tells_customer_to_freeze("There's no need to freeze your card.")
+    assert not tells_customer_to_freeze("Do not follow this advice: freeze your card.")  # round 5
+    # card-09's real reply: the negated clause is its own sentence, the instruction is clean
+    assert tells_customer_to_freeze(
+        "If you've lost your card, freeze it straight away under Cards → Freeze. "
+        "If you see payments you don't recognise, do not just freeze: report fraud."
+    )
+    assert tells_customer_to_freeze("Freeze the card straight away under Cards, then Freeze.")
+    draft = Draft(
+        answerable=True,
+        reply="Don't freeze your card; check Cards, then Card status.",
+        cited_article_ids=["kb-001", "kb-007"],
+        supporting_quotes=[
+            "Check Cards → Card status in the app.",
+            "Freeze the card straight away under Cards → Freeze.",
+        ],
+    )
+    r = triage("urgent", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons

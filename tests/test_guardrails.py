@@ -84,3 +84,41 @@ def test_output_check_blocks_unsafe_advice():
     # Found by the baseline eval (fraud-05): the agent told a phishing victim to follow the link.
     assert output_violations("To unlock your account, follow the link provided in the text.")
     assert output_violations("Please send us your PIN so we can check.")
+
+
+def test_output_check_blocks_links_and_article_ids():
+    # CR-001: found in the production smoke test.
+    assert output_violations("See our article [kb-002](https://example.com/kb-002).")
+    assert output_violations("More at www.acme-pay-help.com")
+    assert output_violations("As explained in kb-002, the pending charge drops off.")
+    assert output_violations("Go to Activity, select the payment, then Report a problem.") == []
+
+
+def test_negated_advice_is_safe_advice():
+    # The CR-001 eval run: these correct warnings were flagged as unsafe.
+    assert output_violations("Please do not click on the link. It may be a phishing attempt.") == []
+    assert output_violations("Never share your PIN with anyone.") == []
+    assert output_violations("Click the link we sent to confirm.")
+    assert output_violations("Then report the fraud by clicking here.")  # fraud-07 draft
+
+
+def test_negation_must_govern_the_unsafe_instruction():
+    # PR #3 review: the "not" belongs to "wait", so the PIN advice is still unsafe.
+    assert output_violations("Do not wait; share your PIN.")
+    assert output_violations("Never share your PIN.") == []
+
+
+def test_markdown_and_protocol_relative_links_are_flagged():
+    assert output_violations("Open [Help](//support.example/help).")
+    assert output_violations("See //support.example/help")
+    assert output_violations("Go to Cards, then Freeze.") == []
+
+
+def test_negation_of_a_different_verb_does_not_excuse_unsafe_advice():
+    # PR #3 review, round 2.
+    assert output_violations("Do not hesitate to share your PIN.")
+    assert output_violations("Please do not click on the link.") == []
+
+
+def test_curly_apostrophe_negation():
+    assert output_violations("Please don’t click the link.") == []

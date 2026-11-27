@@ -109,9 +109,25 @@ _FORBIDDEN_PROMISES = re.compile(
 # Banks never tell customers to use a link they were sent, or to share secrets.
 _UNSAFE_ADVICE = re.compile(
     r"\b(click|follow|tap|use|open) (on )?(the|this|that) link\b"
+    r"|\b(click|tap)(ing)? (here|below)\b"
     r"|\b(send|share|give|tell) (us |me )?(your )?(pin|password|full card number)\b",
     re.IGNORECASE,
 )
+
+
+# CR-001: the model invented "https://example.com/kb-002" in a live reply. A link in a bank's
+# message is a phishing pattern customers are trained to distrust, and a made-up one is worse.
+_LINKS_OR_IDS = re.compile(
+    r"https?://\S+|(?<![\w:])//[\w.-]+\.\w+\S*|\bwww\.\S+|\[[^\]]*\]\([^)]*\)|\[?\bkb-\d{3}\b\]?",
+    re.IGNORECASE,
+)
+
+
+# The negation must sit directly before the matched instruction: "Never share your PIN" and
+# "Please do not click the link" are safe. In "Do not wait; share your PIN" or "Do not hesitate
+# to share your PIN", the negation belongs to another verb, so the instruction is still unsafe.
+# (Two rounds of code review on PR #3 found those bypasses.)
+_NEGATION = re.compile(r"\b(not|never|don't|don’t|avoid)\s+$", re.IGNORECASE)
 
 
 def output_violations(reply: str) -> list[str]:
@@ -122,6 +138,13 @@ def output_violations(reply: str) -> list[str]:
         problems.append(f"reply contains personal data ({', '.join(sorted(set(pii)))})")
     if m := _FORBIDDEN_PROMISES.search(reply):
         problems.append(f"reply makes a promise only a human may make: '{m.group()}'")
-    if m := _UNSAFE_ADVICE.search(reply):
-        problems.append(f"reply gives unsafe advice: '{m.group()}'")
+    for m in _UNSAFE_ADVICE.finditer(reply):
+        # "Please do not click the link" is the *right* advice. The first version flagged it,
+        # and the CR-001 eval run caught that false positive.
+        before = reply[max(0, m.start() - 25) : m.start()].lower()
+        if not _NEGATION.search(before):
+            problems.append(f"reply gives unsafe advice: '{m.group()}'")
+            break
+    if m := _LINKS_OR_IDS.search(reply):
+        problems.append(f"reply contains a link or internal article ID: '{m.group()}'")
     return problems

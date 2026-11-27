@@ -27,6 +27,7 @@ from dotenv import load_dotenv
 
 from triage import tracing
 from triage.graph import triage
+from triage.guardrails import output_violations
 from triage.llm import BedrockLLM
 from triage.prompts import PROMPT_VERSION
 
@@ -60,6 +61,8 @@ def check(case: dict, out: dict) -> dict[str, bool]:
     ok_articles = set(a if isinstance(a, list) else [a]) if (a := case.get("article")) else set()
     if ok_articles and not out["injection_flagged"] and out["category"] != "unknown":
         r["retrieval"] = bool(ok_articles & set(out["retrieved_article_ids"]))
+    if out.get("drafted"):  # every model-written reply, escalated or not
+        r["reply_clean"] = not output_violations(out["reply"])
     if ok_articles and out["action"] == "auto_resolve":
         r["grounded"] = bool(ok_articles & set(out["cited_article_ids"]))
     return r
@@ -92,6 +95,12 @@ def compute_metrics(cases: list[dict], outputs: dict[str, dict]) -> dict[str, fl
         "retrieval_hit_rate": rate(pick("retrieval")),
         "grounded_reply_rate": rate(pick("grounded")),
         "injection_false_positive_rate": 1 - (rate(pick("no_false_injection")) or 1.0),
+        # Drafts that would have failed the output check (links, promises, PII, unsafe advice).
+        "clean_draft_rate": rate(pick("reply_clean")),
+        # Auto-sent replies that fail the output check: must be zero, the guard guarantees it.
+        "unsafe_auto_replies": sum(
+            1 for _, o, _ in rows if o["action"] == "auto_resolve" and output_violations(o["reply"])
+        ),
         "p95_latency_ms": latencies[max(0, int(len(latencies) * 0.95) - 1)] if latencies else None,
         "mean_cost_usd": statistics.mean(o["cost_usd"] for _, o, _ in rows) if rows else None,
     }
@@ -227,7 +236,9 @@ def fmt(name: str, v) -> str:
         return f"{v:,.0f} ms"
     if name.endswith("_usd"):
         return f"${v:.5f}"
-    return f"{v:.0%}"
+    if name == "unsafe_auto_replies":
+        return str(int(v))
+    return f"{v:.1%}"  # one decimal: 94.6% must not display as a passing-looking "95%"
 
 
 def to_markdown(report: dict) -> str:
