@@ -72,6 +72,9 @@ Terraform state is versioned in S3 if infrastructure needs restoring.
 - **Review queue** uses a DynamoDB Scan; add a GSI on `status` at volume.
 - **The API key** is a single shared secret. For production, put the review page behind SSO and
   give each integration its own key.
+- **Grounding is checked by quotes, not by meaning.** A reply can quote a real sentence that
+  doesn't support its claim (the eval case `fees-05` does this intermittently). CR-003
+  (planned) adds an LLM-as-judge groundedness check before auto-send.
 - **Free plan:** ends 27 May 2027, or when the $100 of credits runs out. The account is closed
   unless it's upgraded.
 
