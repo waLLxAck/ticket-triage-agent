@@ -4,6 +4,8 @@ This is the most important idea in production agents: the model *proposes*, dete
 rules *dispose*. Rules are cheap, auditable, and a regulator can read them.
 """
 
+import re
+
 from triage.knowledge import quote_is_verbatim
 from triage.schemas import Action, Category, Classification, Draft, Urgency
 
@@ -17,6 +19,7 @@ MIN_CONFIDENCE = 0.7
 # above. (Attempt 1 removed the urgency rule entirely, and the eval gate caught 4 other urgent
 # tickets being auto-resolved.)
 LOST_CARD_ARTICLE = "kb-007"
+FREEZE_INSTRUCTION = re.compile(r"\bfreez(e|ing)\b", re.IGNORECASE)
 
 
 def lost_card_fast_path(c: Classification, d: Draft | None, scam_signals, output_problems) -> bool:
@@ -28,6 +31,7 @@ def lost_card_fast_path(c: Classification, d: Draft | None, scam_signals, output
         and d is not None
         and d.answerable
         and any(quote_is_verbatim(q, [LOST_CARD_ARTICLE]) for q in d.supporting_quotes)
+        and FREEZE_INSTRUCTION.search(d.reply) is not None  # the reply itself must say "freeze"
         and not scam_signals
         and not output_problems
     )

@@ -112,3 +112,9 @@ def test_markdown_and_protocol_relative_links_are_flagged():
     assert output_violations("Open [Help](//support.example/help).")
     assert output_violations("See //support.example/help")
     assert output_violations("Go to Cards, then Freeze.") == []
+
+
+def test_negation_of_a_different_verb_does_not_excuse_unsafe_advice():
+    # PR #3 review, round 2.
+    assert output_violations("Do not hesitate to share your PIN.")
+    assert output_violations("Please do not click on the link.") == []

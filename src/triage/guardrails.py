@@ -123,12 +123,11 @@ _LINKS_OR_IDS = re.compile(
 )
 
 
-# The negation must belong to the matched instruction: same clause (no punctuation in between)
-# and at most two words between them. "Never share your PIN" is safe; in "Do not wait; share
-# your PIN" the "not" belongs to "wait", so the instruction still counts as unsafe.
-_NEGATION = re.compile(
-    r"\b(not|never|don't|do not|nobody|no one|avoid)\b(\s+\w+){0,2}\s*$", re.IGNORECASE
-)
+# The negation must sit directly before the matched instruction: "Never share your PIN" and
+# "Please do not click the link" are safe. In "Do not wait; share your PIN" or "Do not hesitate
+# to share your PIN", the negation belongs to another verb, so the instruction is still unsafe.
+# (Two rounds of code review on PR #3 found those bypasses.)
+_NEGATION = re.compile(r"\b(not|never|don't|avoid)\s+$", re.IGNORECASE)
 
 
 def output_violations(reply: str) -> list[str]:

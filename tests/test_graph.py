@@ -214,3 +214,18 @@ def test_every_supporting_quote_must_be_verbatim():
     )
     r = triage("lost card", FakeLLM(c(Category.card_payment), draft))
     assert r.action == Action.escalate
+
+
+def test_cr002_fast_path_requires_freeze_guidance_in_the_reply():
+    # PR #3 review, round 2: valid quotes from both articles, but the reply never says "freeze".
+    draft = Draft(
+        answerable=True,
+        reply="Check Cards, then Card status.",
+        cited_article_ids=["kb-001", "kb-007"],
+        supporting_quotes=[
+            "Check Cards → Card status in the app.",
+            "Freeze the card straight away under Cards → Freeze.",
+        ],
+    )
+    r = triage("urgent", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
