@@ -5,7 +5,7 @@ rules *dispose*. Rules are cheap, auditable, and a regulator can read them.
 """
 
 from triage.knowledge import quote_is_verbatim
-from triage.schemas import Action, Category, Classification, Draft, Urgency
+from triage.schemas import Action, Category, Classification, Draft
 
 ALWAYS_HUMAN = {Category.fraud_report, Category.complaint, Category.unknown}
 MIN_CONFIDENCE = 0.7
@@ -28,8 +28,6 @@ def decide(
         reasons.append(f"category '{classification.category}' always goes to a human")
     if classification.confidence < MIN_CONFIDENCE:
         reasons.append(f"confidence {classification.confidence:.2f} below {MIN_CONFIDENCE}")
-    if classification.urgency == Urgency.high:
-        reasons.append("high urgency")
     if draft is not None and not draft.answerable:
         reasons.append("help centre doesn't cover it")
     if draft is not None and draft.answerable and not draft.cited_article_ids:
