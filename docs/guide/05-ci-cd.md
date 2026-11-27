@@ -52,7 +52,24 @@ GitHub Actions job                      AWS STS                         IAM role
     A malicious PR can run up about a penny of model calls, and nothing more.
   - `triage-gha-deploy` trusts only `environment:production`, which GitHub only allows from
     `main`. It may manage only resources named `triage-*`, and only pass the app's own roles.
-- A fork's PR gets no secrets and its token has a different `sub`, so it gets nothing.
+- **Forks:** a PR from a fork *does* produce a `...:pull_request` subject for this repo, so the
+  trust policy alone isn't what stops it. What stops it is GitHub. For `pull_request` events
+  from forks, the workflow gets no repository secrets and can't be granted `id-token: write`,
+  so it can't request an OIDC token at all. Never switch this workflow to `pull_request_target`,
+  which runs with the base repo's permissions.
+- **Immutable subjects.** The first CI run failed with "Not authorized to perform
+  sts:AssumeRoleWithWebIdentity". CloudTrail showed why: GitHub now signs
+  `repo:waLLxAck@15944458/ticket-triage-agent@1474551602:pull_request`, which includes the
+  owner and repo **IDs**, not just the names. The trust policy expected the old name-only
+  format. With IDs, if the repo were deleted and someone recreated one with the same name, it
+  wouldn't inherit the trust. `gh api repos/<owner>/<repo>/actions/oidc/customization/sub`
+  shows the prefix.
+- **Permissions boundary.** Code review found that the deploy role could create a
+  `triage-app-*` role with an `Action: "*"` policy, pass it to a Lambda, and so become account
+  admin: a classic IAM privilege escalation. The deploy role can now only create or edit app
+  roles that carry the `triage-app-boundary` policy. A boundary is a ceiling: effective
+  permissions are the role's policy *intersected with* the boundary. The deploy role is also
+  denied removing the boundary.
 
 ## Secrets and variables
 

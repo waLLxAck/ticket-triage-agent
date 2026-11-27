@@ -31,6 +31,16 @@ variable "github_repo" {
   default = "waLLxAck/ticket-triage-agent"
 }
 
+# GitHub signs an *immutable* subject that includes the owner and repository IDs, e.g.
+# repo:waLLxAck@15944458/ticket-triage-agent@1474551602:pull_request. Find yours with
+#   gh api repos/<owner>/<repo>/actions/oidc/customization/sub   (sub_claim_prefix)
+# A name-only subject ("repo:waLLxAck/ticket-triage-agent:...") no longer matches. The IDs
+# stop a deleted-and-recreated repo with the same name from inheriting this trust.
+variable "github_sub_prefix" {
+  type    = string
+  default = "repo:waLLxAck@15944458/ticket-triage-agent@1474551602"
+}
+
 variable "model_id" {
   type    = string
   default = "amazon.nova-lite-v1:0"
@@ -115,8 +125,8 @@ data "aws_iam_policy_document" "trust_eval" {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
       values = [
-        "repo:${var.github_repo}:pull_request",
-        "repo:${var.github_repo}:ref:refs/heads/*",
+        "${var.github_sub_prefix}:pull_request",
+        "${var.github_sub_prefix}:ref:refs/heads/*",
       ]
     }
   }
@@ -139,7 +149,7 @@ data "aws_iam_policy_document" "trust_deploy" {
       variable = "token.actions.githubusercontent.com:sub"
       # A job that declares `environment: production` gets this subject. The GitHub environment
       # only accepts deployments from main, so this works out as main only and never a PR.
-      values = ["repo:${var.github_repo}:environment:production"]
+      values = ["${var.github_sub_prefix}:environment:production"]
     }
   }
 }
@@ -191,7 +201,6 @@ resource "aws_iam_role_policy" "gha_deploy" {
         Action = ["lambda:*", "sqs:*", "dynamodb:*", "logs:*", "ssm:*", "cloudwatch:*", "sns:*"]
         Resource = [
           "arn:aws:lambda:${var.region}:${local.account_id}:function:triage-*",
-          "arn:aws:lambda:${var.region}:${local.account_id}:event-source-mapping:*",
           "arn:aws:sqs:${var.region}:${local.account_id}:triage-*",
           "arn:aws:dynamodb:${var.region}:${local.account_id}:table/triage-*",
           "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/lambda/triage-*",
@@ -203,14 +212,51 @@ resource "aws_iam_role_policy" "gha_deploy" {
       {
         Sid      = "ListAndDescribe" # these APIs don't support resource-level scoping
         Effect   = "Allow"
-        Action   = ["lambda:GetAccountSettings", "lambda:ListEventSourceMappings", "lambda:CreateEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "logs:DescribeLogGroups", "ssm:DescribeParameters", "sqs:ListQueues", "budgets:*", "sts:GetCallerIdentity", "kms:Decrypt"]
+        Action   = ["lambda:GetAccountSettings", "lambda:ListEventSourceMappings", "lambda:GetEventSourceMapping", "lambda:ListTags", "lambda:TagResource", "logs:DescribeLogGroups", "ssm:DescribeParameters", "sqs:ListQueues", "budgets:*", "sts:GetCallerIdentity", "kms:Decrypt"]
         Resource = "*"
       },
       {
-        Sid      = "AppRoles" # may manage and pass only the app's own roles
+        Sid      = "OwnEventSourceMappingsOnly" # can't rewire or disable another app's consumers
         Effect   = "Allow"
-        Action   = ["iam:GetRole", "iam:CreateRole", "iam:DeleteRole", "iam:TagRole", "iam:UntagRole", "iam:UpdateAssumeRolePolicy", "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:PassRole"]
+        Action   = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping"]
+        Resource = "*"
+        Condition = {
+          ArnLike = { "lambda:FunctionArn" = "arn:aws:lambda:${var.region}:${local.account_id}:function:triage-*" }
+        }
+      },
+      {
+        Sid      = "ReadAppRoles"
+        Effect   = "Allow"
+        Action   = ["iam:GetRole", "iam:GetRolePolicy", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies", "iam:ListInstanceProfilesForRole", "iam:TagRole", "iam:UntagRole", "iam:DeleteRole", "iam:UpdateAssumeRolePolicy"]
         Resource = "arn:aws:iam::${local.account_id}:role/triage-app-*"
+      },
+      {
+        # The privilege-escalation guard. Without it, a deploy could create "triage-app-x" with
+        # an inline policy of Action "*", pass it to a Lambda, and run as account admin. Now a
+        # role can only be created, or have its policies changed, if it carries the boundary,
+        # and the boundary caps what any inline policy can grant.
+        Sid      = "WriteAppRolesOnlyWithBoundary"
+        Effect   = "Allow"
+        Action   = ["iam:CreateRole", "iam:PutRolePolicy", "iam:DeleteRolePolicy", "iam:PutRolePermissionsBoundary"]
+        Resource = "arn:aws:iam::${local.account_id}:role/triage-app-*"
+        Condition = {
+          StringEquals = { "iam:PermissionsBoundary" = aws_iam_policy.app_boundary.arn }
+        }
+      },
+      {
+        Sid      = "PassAppRolesToLambdaOnly"
+        Effect   = "Allow"
+        Action   = ["iam:PassRole"]
+        Resource = "arn:aws:iam::${local.account_id}:role/triage-app-*"
+        Condition = {
+          StringEquals = { "iam:PassedToService" = "lambda.amazonaws.com" }
+        }
+      },
+      {
+        Sid      = "NeverRemoveTheBoundary"
+        Effect   = "Deny"
+        Action   = ["iam:DeleteRolePermissionsBoundary", "iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:SetDefaultPolicyVersion"]
+        Resource = "*"
       },
       {
         Sid      = "SmokeTestModel"
@@ -222,6 +268,26 @@ resource "aws_iam_role_policy" "gha_deploy" {
   })
 }
 
+# --- Permissions boundary for every app role ------------------------------------------------------
+# The *maximum* any triage-app-* role can ever do, whatever its own policies say. Effective
+# permissions = role policy ∩ boundary.
+
+resource "aws_iam_policy" "app_boundary" {
+  name        = "triage-app-boundary"
+  description = "Ceiling for triage-app-* Lambda roles"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["logs:CreateLogStream", "logs:PutLogEvents"], Resource = "arn:aws:logs:${var.region}:${local.account_id}:log-group:/aws/lambda/triage-*" },
+      { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Scan", "dynamodb:Query"], Resource = "arn:aws:dynamodb:${var.region}:${local.account_id}:table/triage-*" },
+      { Effect = "Allow", Action = ["sqs:SendMessage", "sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes", "sqs:ChangeMessageVisibility"], Resource = "arn:aws:sqs:${var.region}:${local.account_id}:triage-*" },
+      { Effect = "Allow", Action = ["ssm:GetParameters"], Resource = "arn:aws:ssm:${var.region}:${local.account_id}:parameter/triage/*" },
+      { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = local.model_arn },
+    ]
+  })
+}
+
+output "app_boundary_arn" { value = aws_iam_policy.app_boundary.arn }
 output "state_bucket" { value = aws_s3_bucket.state.bucket }
 output "eval_role_arn" { value = aws_iam_role.gha_eval.arn }
 output "deploy_role_arn" { value = aws_iam_role.gha_deploy.arn }

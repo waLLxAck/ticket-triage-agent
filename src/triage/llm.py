@@ -48,23 +48,26 @@ class RateLimiter:
     aggregate rate within the quota.
     """
 
-    def __init__(self, per_minute: float, burst: int = 3):
+    def __init__(self, per_minute: float, burst: int = 3, clock=time.monotonic, sleep=time.sleep):
+        if per_minute <= 0 or burst < 1:
+            raise ValueError(f"need per_minute > 0 and burst >= 1, got {per_minute}, {burst}")
+        self._clock, self._sleep = clock, sleep
         self.rate = per_minute / 60.0  # tokens per second
         self.capacity = float(burst)
         self._tokens = float(burst)
-        self._updated = time.monotonic()
+        self._updated = clock()
         self._lock = threading.Lock()
         self._local = threading.local()
 
     def wait(self) -> None:
         with self._lock:
-            now = time.monotonic()
+            now = self._clock()
             self._tokens = min(self.capacity, self._tokens + (now - self._updated) * self.rate)
             self._updated = now
             self._tokens -= 1  # take a token now; if that goes negative, wait for the debt
             delay = -self._tokens / self.rate if self._tokens < 0 else 0.0
         if delay > 0:
-            time.sleep(delay)
+            self._sleep(delay)
         self._local.waited = self.waited() + delay
 
     def waited(self) -> float:

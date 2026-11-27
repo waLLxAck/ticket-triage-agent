@@ -38,6 +38,8 @@ def main(base: str, key: str) -> None:
         time.sleep(5)
         for name, ticket_id in ids.items():
             item = call(f"{base}/tickets/{ticket_id}", key)
+            if item["status"] == "failed":
+                sys.exit(f"smoke test: {name} ticket failed: {item.get('error')}")
             if item["status"] != "queued":
                 results[name] = item
     for name, item in results.items():

@@ -27,6 +27,10 @@ def load() -> None:
     if not wanted:
         return
     resp = boto3.client("ssm").get_parameters(Names=list(wanted.values()), WithDecryption=True)
+    if resp.get("InvalidParameters"):
+        # Fail the cold start loudly. A half-configured function (e.g. no API key, so every
+        # request returns 401) is harder to debug than one that doesn't start.
+        raise RuntimeError(f"missing SSM parameters: {resp['InvalidParameters']}")
     by_name = {p["Name"]: p["Value"] for p in resp["Parameters"]}
     for var, name in wanted.items():
         if name in by_name:

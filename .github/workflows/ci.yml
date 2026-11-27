@@ -48,6 +48,7 @@ jobs:
     concurrency:
       group: eval            # one eval at a time: they share a Bedrock quota of 20 req/min
       cancel-in-progress: false
+      queue: max             # keep every waiting PR's eval (default keeps only one pending)
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v7
@@ -104,26 +105,45 @@ jobs:
       TF_VAR_langfuse_secret_key: ${{ secrets.LANGFUSE_SECRET_KEY }}
       TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
     steps:
+      # Concurrency runs one deploy at a time but doesn't guarantee push order. If a newer
+      # commit already reached main, don't let this older run overwrite its deployment.
+      - name: Skip if this commit is no longer the head of main
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD=$(gh api "repos/${{ github.repository }}/commits/main" -q .sha)
+          if [ "$HEAD" != "${{ github.sha }}" ]; then
+            echo "::notice::main has moved on to $HEAD; skipping the deploy of ${{ github.sha }}"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/checkout@v5
+        if: steps.head.outputs.stale != 'true'
       - uses: astral-sh/setup-uv@v7
+        if: steps.head.outputs.stale != 'true'
         with:
           enable-cache: true
       - uses: hashicorp/setup-terraform@v3
+        if: steps.head.outputs.stale != 'true'
         with:
           terraform_version: 1.17.2
           terraform_wrapper: false
       - uses: aws-actions/configure-aws-credentials@v5
+        if: steps.head.outputs.stale != 'true'
         with:
           role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Build Lambda package
+        if: steps.head.outputs.stale != 'true'
         run: uv run python scripts/build_lambda.py
       - name: Terraform apply
+        if: steps.head.outputs.stale != 'true'
         working-directory: infra/app
         run: |
           terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
           terraform apply -auto-approve -input=false
       - name: Smoke test the deployed API
+        if: steps.head.outputs.stale != 'true'
         working-directory: infra/app
         run: |
           URL=$(terraform output -raw api_url)

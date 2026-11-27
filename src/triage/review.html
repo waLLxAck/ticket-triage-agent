@@ -50,7 +50,7 @@ async function api(path, opts = {}) {
   return res.json();
 }
 
-function esc(s) { return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c])); }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])); }
 
 function card(t) {
   const r = t.result || {};
@@ -68,7 +68,7 @@ function card(t) {
   el.querySelectorAll("button").forEach((b) => b.onclick = async () => {
     const reply = el.querySelector("textarea").value;
     try {
-      await api(`/tickets/${t.ticket_id}/review`, { method: "POST", body: JSON.stringify({ reply, edited: b.dataset.act === "edit" || reply !== r.reply }) });
+      await api(`/tickets/${encodeURIComponent(t.ticket_id)}/review`, { method: "POST", body: JSON.stringify({ reply, edited: b.dataset.act === "edit" || reply !== r.reply }) });
       el.innerHTML = `<p class="empty">${esc(t.ticket_id)}: reply sent.</p>`;
     } catch (e) { alert(e.message); }
   });

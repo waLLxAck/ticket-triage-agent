@@ -62,10 +62,14 @@ def submit(ticket: NewTicket):
     ticket_id = uuid.uuid4().hex[:12]
     clean, pii = redact(ticket.text)  # raw text is never stored or queued
     store.create(ticket_id, clean, pii)
-    _sqs().send_message(
-        QueueUrl=os.environ["QUEUE_URL"],
-        MessageBody=json.dumps({"ticket_id": ticket_id, "text": clean}),
-    )
+    try:
+        _sqs().send_message(
+            QueueUrl=os.environ["QUEUE_URL"],
+            MessageBody=json.dumps({"ticket_id": ticket_id, "text": clean}),
+        )
+    except Exception as exc:  # noqa: BLE001 - don't leave a 'queued' ticket nothing will process
+        store.mark_failed(ticket_id, f"enqueue failed: {exc!r}")
+        raise HTTPException(status_code=503, detail="could not queue the ticket, retry") from None
     return {"ticket_id": ticket_id, "status": "queued", "pii_redacted": pii}
 
 
@@ -86,7 +90,7 @@ def review_queue():
 def review(ticket_id: str, body: Review):
     try:
         return store.review(ticket_id, body.reviewer, body.reply, body.edited)
-    except store._table().meta.client.exceptions.ConditionalCheckFailedException:
+    except store.AlreadyProcessed:
         raise HTTPException(status_code=409, detail="ticket is not awaiting review") from None
 
 

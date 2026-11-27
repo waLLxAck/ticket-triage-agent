@@ -113,16 +113,22 @@ def test_reply_promising_a_refund_is_held_for_a_human():
 
 
 def test_rate_limiter_allows_a_burst_then_paces():
-    import time
+    import pytest
 
     from triage.llm import RateLimiter
 
-    limiter = RateLimiter(per_minute=600, burst=3)  # 10/s
-    start = time.monotonic()
+    clock = {"t": 0.0}
+
+    def sleep(seconds):
+        clock["t"] += seconds  # a fake clock: deterministic, no real waiting
+
+    limiter = RateLimiter(per_minute=60, burst=3, clock=lambda: clock["t"], sleep=sleep)
     for _ in range(3):
         limiter.wait()
-    assert time.monotonic() - start < 0.05  # the burst goes straight through
+    assert limiter.waited() == 0  # the burst goes straight through
     limiter.wait()
+    assert limiter.waited() == pytest.approx(1.0)  # then 1 call per second
     limiter.wait()
-    assert time.monotonic() - start >= 0.15  # then about 0.1 s per call
-    assert limiter.waited() > 0
+    assert limiter.waited() == pytest.approx(2.0)
+    with pytest.raises(ValueError):
+        RateLimiter(per_minute=0)

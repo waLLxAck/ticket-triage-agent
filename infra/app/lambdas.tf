@@ -11,8 +11,9 @@ data "aws_iam_policy_document" "lambda_trust" {
 }
 
 resource "aws_iam_role" "api" {
-  name               = "triage-app-api"
-  assume_role_policy = data.aws_iam_policy_document.lambda_trust.json
+  name                 = "triage-app-api"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  permissions_boundary = local.app_boundary_arn # required: the deploy role can't create one without it
 }
 
 resource "aws_iam_role_policy" "api" {
@@ -31,8 +32,9 @@ resource "aws_iam_role_policy" "api" {
 }
 
 resource "aws_iam_role" "worker" {
-  name               = "triage-app-worker"
-  assume_role_policy = data.aws_iam_policy_document.lambda_trust.json
+  name                 = "triage-app-worker"
+  assume_role_policy   = data.aws_iam_policy_document.lambda_trust.json
+  permissions_boundary = local.app_boundary_arn
 }
 
 resource "aws_iam_role_policy" "worker" {
@@ -79,7 +81,9 @@ resource "aws_lambda_function_url" "api" {
   authorization_type = "NONE"
 }
 
-# Lets anyone reach the URL; our x-api-key check is the gate.
+# Lets anyone reach the URL; our x-api-key check is the gate. (Reserved concurrency would cap
+# abuse, but this account's limit is 10 concurrent executions and AWS keeps 10 unreserved,
+# so nothing can be reserved. The account limit itself is the cap here.)
 resource "aws_lambda_permission" "url_public" {
   statement_id           = "public-function-url"
   action                 = "lambda:InvokeFunctionUrl"
@@ -106,6 +110,7 @@ resource "aws_lambda_function" "worker" {
       LANGFUSE_PUBLIC_KEY_PARAM = aws_ssm_parameter.langfuse_public_key.name
       LANGFUSE_SECRET_KEY_PARAM = aws_ssm_parameter.langfuse_secret_key.name
       APP_ENV                   = "prod"
+      MAX_RECEIVES              = tostring(local.max_receives) # worker marks 'failed' on the last try
     }
   }
   depends_on = [aws_cloudwatch_log_group.worker, aws_iam_role_policy.worker]

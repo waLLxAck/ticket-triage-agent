@@ -16,6 +16,7 @@ those and not the whole batch.
 
 import json
 import logging
+import os
 
 from triage import settings, store, tracing
 from triage.graph import triage
@@ -28,10 +29,12 @@ log.setLevel(logging.INFO)
 def handler(event, context):
     settings.load()
     failures = []
+    max_receives = int(os.environ.get("MAX_RECEIVES", "3"))  # = the queue's maxReceiveCount
     for record in event["Records"]:
-        msg = json.loads(record["body"])
-        ticket_id = msg["ticket_id"]
+        ticket_id = None
         try:
+            msg = json.loads(record["body"])  # inside the try: one bad message can't sink the batch
+            ticket_id = msg["ticket_id"]
             cfg = tracing.run_config(ticket_id, ["lambda"])
             result = triage(msg["text"], BedrockLLM(), ticket_id, config=cfg)
             status = store.save_result(ticket_id, result.model_dump(mode="json"))
@@ -47,12 +50,17 @@ def handler(event, context):
                     }
                 )
             )
+        except store.AlreadyProcessed:
+            log.info(json.dumps({"ticket_id": ticket_id, "status": "duplicate delivery, skipped"}))
         except Exception as exc:
             log.exception("ticket %s failed", ticket_id)
             receive_count = int(record["attributes"].get("ApproximateReceiveCount", "1"))
-            if receive_count >= 3:  # last attempt: record it before SQS moves it to the DLQ
-                store.mark_failed(ticket_id, repr(exc))
             failures.append({"itemIdentifier": record["messageId"]})
+            if ticket_id and receive_count >= max_receives:  # last attempt, the DLQ is next
+                try:
+                    store.mark_failed(ticket_id, repr(exc))
+                except Exception:
+                    log.exception("could not mark %s failed", ticket_id)
     if tracing.enabled():
         tracing.client().flush()  # Lambda freezes after return: send traces now
     return {"batchItemFailures": failures}

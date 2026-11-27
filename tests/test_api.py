@@ -96,3 +96,21 @@ def test_auto_resolved_tickets_never_enter_the_review_queue(env):
     store.create("t2", "double charge", [])
     assert store.save_result("t2", {"action": "auto_resolve", "reply": "ok"}) == "auto_resolved"
     assert client.get("/review", headers={"x-api-key": KEY}).json() == []
+
+
+def test_redelivered_message_cannot_overwrite_a_human_decision(env):
+    from triage import store
+
+    store.create("t3", "fraud ticket", [])
+    store.save_result("t3", {"action": "escalate", "reply": "holding"})
+    store.review("t3", "agent", "Fraud team on it.", edited=True)
+    with pytest.raises(store.AlreadyProcessed):  # SQS delivered the same message again
+        store.save_result("t3", {"action": "auto_resolve", "reply": "oops"})
+    assert store.get("t3")["status"] == "human_edited"
+
+
+def test_worker_isolates_a_malformed_message(env, monkeypatch):
+    from triage import worker
+
+    event = {"Records": [{"messageId": "m1", "body": "not json", "attributes": {}}]}
+    assert worker.handler(event, None) == {"batchItemFailures": [{"itemIdentifier": "m1"}]}

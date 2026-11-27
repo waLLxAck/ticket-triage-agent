@@ -43,6 +43,8 @@ locals {
   # Worker concurrency × per-worker rate must stay under the account's Bedrock quota (20/min).
   worker_concurrency = 2
   per_worker_rpm     = 9
+  max_receives       = 3 # attempts before a message moves to the DLQ
+  app_boundary_arn   = "arn:aws:iam::${data.aws_caller_identity.me.account_id}:policy/triage-app-boundary"
 }
 
 # --- Secrets: SSM Parameter Store (SecureString, free standard tier) ------------------------------
@@ -104,7 +106,7 @@ resource "aws_sqs_queue" "tickets" {
   receive_wait_time_seconds  = 20 # long polling: fewer empty receives, fewer requests
   redrive_policy = jsonencode({
     deadLetterTargetArn = aws_sqs_queue.dlq.arn
-    maxReceiveCount     = 3
+    maxReceiveCount     = local.max_receives
   })
 }
 
