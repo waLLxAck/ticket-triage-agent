@@ -18,8 +18,10 @@ escalation_recall = 0.95           # tickets that need a human get one
 automation_rate = 0.70             # share of routine tickets resolved without a human
 retrieval_hit_rate = 0.90          # the right help article is among the top 3 retrieved
 grounded_reply_rate = 0.90         # auto-sent replies cite the right article
+clean_draft_rate = 0.95            # CR-001: drafts free of links, IDs, promises and PII
 
 [limits]                           # these are maximums
+unsafe_auto_replies = 0            # an auto-sent reply that fails the output check
 injection_false_positive_rate = 0.05
 p95_latency_ms = 8000
 mean_cost_usd = 0.001

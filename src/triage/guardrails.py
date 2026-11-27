@@ -114,6 +114,11 @@ _UNSAFE_ADVICE = re.compile(
 )
 
 
+# CR-001: the model invented "https://example.com/kb-002" in a live reply. A link in a bank's
+# message is a phishing pattern customers are trained to distrust, and a made-up one is worse.
+_LINKS_OR_IDS = re.compile(r"https?://\S+|\bwww\.\S+|\[?\bkb-\d{3}\b\]?", re.IGNORECASE)
+
+
 def output_violations(reply: str) -> list[str]:
     """Problems with a drafted reply that mean a human must look at it before it's sent."""
     problems = []
@@ -124,4 +129,6 @@ def output_violations(reply: str) -> list[str]:
         problems.append(f"reply makes a promise only a human may make: '{m.group()}'")
     if m := _UNSAFE_ADVICE.search(reply):
         problems.append(f"reply gives unsafe advice: '{m.group()}'")
+    if m := _LINKS_OR_IDS.search(reply):
+        problems.append(f"reply contains a link or internal article ID: '{m.group()}'")
     return problems
