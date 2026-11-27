@@ -20,16 +20,22 @@ MIN_CONFIDENCE = 0.7
 # tickets being auto-resolved.)
 LOST_CARD_ARTICLE = "kb-007"
 FREEZE_INSTRUCTION = re.compile(r"\bfreez(e|ing)\b", re.IGNORECASE)
-_NEGATED = re.compile(r"\b(not|never|don't|don’t|avoid|no need to)\s+$", re.IGNORECASE)
+_ANY_NEGATION = re.compile(
+    r"\b(not|never|no|don't|don’t|doesn't|doesn’t|avoid|without|unless|instead)\b|n't\b|n’t\b",
+    re.IGNORECASE,
+)
 
 
 def tells_customer_to_freeze(reply: str) -> bool:
-    """True if the reply contains an affirmative freeze instruction. "Don't freeze your card"
-    mentions freezing but says the opposite (code review, round 3)."""
-    return any(
-        not _NEGATED.search(reply[max(0, m.start() - 25) : m.start()])
-        for m in FREEZE_INSTRUCTION.finditer(reply)
-    )
+    """True if some sentence tells the customer to freeze and contains no negation at all.
+
+    Deliberately conservative. Three rounds of code review found ways to word a negated
+    instruction ("Don't freeze…", "do not immediately freeze…") that slipped past
+    negation-just-before-the-verb rules. Any negation word anywhere in the sentence disqualifies
+    it. A false "no" here only sends a ticket to a human, which costs automation, not safety.
+    """
+    sentences = re.split(r"[.!?;:\n]+", reply)
+    return any(FREEZE_INSTRUCTION.search(s) and not _ANY_NEGATION.search(s) for s in sentences)
 
 
 def lost_card_fast_path(c: Classification, d: Draft | None, scam_signals, output_problems) -> bool:

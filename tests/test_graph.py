@@ -237,6 +237,13 @@ def test_cr002_negated_freeze_does_not_count_as_freeze_guidance():
 
     assert not tells_customer_to_freeze("Don't freeze your card; check Cards, then Card status.")
     assert not tells_customer_to_freeze("Don’t freeze it yet.")
+    assert not tells_customer_to_freeze("Please do not immediately freeze your card.")  # round 4
+    assert not tells_customer_to_freeze("There's no need to freeze your card.")
+    # card-09's real reply: the negated clause is its own sentence, the instruction is clean
+    assert tells_customer_to_freeze(
+        "If you've lost your card, freeze it straight away under Cards → Freeze. "
+        "If you see payments you don't recognise, do not just freeze: report fraud."
+    )
     assert tells_customer_to_freeze("Freeze the card straight away under Cards, then Freeze.")
     draft = Draft(
         answerable=True,
