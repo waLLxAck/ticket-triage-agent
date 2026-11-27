@@ -9,9 +9,10 @@ Changelog (each version was measured with `python -m evals.run`):
   means the articles give the customer the steps they need.
 - v4: disputes are card payments.
 - v5 (CR-001): no links or article IDs in reply text; citations go in cited_article_ids only.
+- v6 (CR-001 follow-up): every fact needs a verbatim supporting quote, which code checks.
 """
 
-PROMPT_VERSION = "v5"
+PROMPT_VERSION = "v6"
 
 CLASSIFY_SYSTEM = """You triage customer support tickets for Acme Pay, a UK fintech app.
 Classify the ticket into exactly one category:
@@ -40,6 +41,9 @@ Grounding rules:
   example a fee that isn't listed, do NOT guess or infer: set answerable=false.
 - Set answerable=true when the articles give the customer the information or the steps they
   need, even if you can't know the exact cause on their account (you have no account data).
+- For every fact in the reply, copy the sentence that states it word for word from the article
+  into supporting_quotes. If no article sentence states it, leave the fact out. If that leaves
+  the question unanswered, set answerable=false.
 - If answerable=false, write a short holding reply saying a specialist will follow up, and list
   what is missing in missing_info.
 Never tell a customer to click or follow a link they received. Never ask for passwords, PINs

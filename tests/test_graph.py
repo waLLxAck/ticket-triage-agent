@@ -35,7 +35,12 @@ def c(category, confidence=0.9, urgency=Urgency.low):
     )
 
 
-GOOD_DRAFT = Draft(answerable=True, reply="Here's how...", cited_article_ids=["kb-002"])
+GOOD_DRAFT = Draft(
+    answerable=True,
+    reply="Here's how...",
+    cited_article_ids=["kb-002"],
+    supporting_quotes=["The pending one drops off automatically within 3–5 working days."],
+)
 
 
 def test_confident_answerable_ticket_is_auto_resolved():
@@ -132,3 +137,16 @@ def test_rate_limiter_allows_a_burst_then_paces():
     assert limiter.waited() == pytest.approx(2.0)
     with pytest.raises(ValueError):
         RateLimiter(per_minute=0)
+
+
+def test_answer_without_a_verbatim_quote_is_escalated():
+    # The CR-001 eval run: "We do not charge a fee for receiving money from abroad" was auto-sent.
+    draft = Draft(
+        answerable=True,
+        reply="We do not charge a fee for receiving money from abroad.",
+        cited_article_ids=["kb-005"],
+        supporting_quotes=["We do not charge a fee for receiving money from abroad."],
+    )
+    r = triage("fee for receiving money?", FakeLLM(c(Category.fees_limits), draft))
+    assert r.action == Action.escalate
+    assert any("verbatim quote" in reason for reason in r.escalation_reasons)

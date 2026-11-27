@@ -236,7 +236,9 @@ def fmt(name: str, v) -> str:
         return f"{v:,.0f} ms"
     if name.endswith("_usd"):
         return f"${v:.5f}"
-    return f"{v:.0%}"
+    if name == "unsafe_auto_replies":
+        return str(int(v))
+    return f"{v:.1%}"  # one decimal: 94.6% must not display as a passing-looking "95%"
 
 
 def to_markdown(report: dict) -> str:
