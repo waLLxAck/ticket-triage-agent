@@ -99,3 +99,4 @@ def test_negated_advice_is_safe_advice():
     assert output_violations("Please do not click on the link. It may be a phishing attempt.") == []
     assert output_violations("Never share your PIN with anyone.") == []
     assert output_violations("Click the link we sent to confirm.")
+    assert output_violations("Then report the fraud by clicking here.")  # fraud-07 draft
