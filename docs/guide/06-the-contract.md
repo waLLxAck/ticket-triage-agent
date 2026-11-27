@@ -24,6 +24,7 @@ The paperwork is in `docs/contract/`:
 | PR #3 | CR-002 attempt 1: drop the high-urgency rule | ❌ `escalation_recall` **96% → 81%** | The lost-card tests passed, and so did all 43 unit tests. But 4 other urgent tickets were auto-resolved: an angry customer whose transfer had been missing 3 days, a rent payment declined an hour before it was due, and two others. **Only the eval gate saw it.** |
 | PR #3 | attempt 1 again, rebased onto prompt v6 (the queue kept the run) | ❌ `escalation_recall` 84.6% | A second, independent confirmation of the same regression. |
 | PR #3 | CR-002 attempt 2: keep the rule, narrow fast path in code | ✅ escalation 96.2%, automation 89.7% | A business rule with a safety boundary belongs in `policy.py`, where the client can read it and sign it off. The lost-card tickets also won back the automation the quote check had cost. |
+| PR #3 | 5 rounds of CodeRabbit review on the new checks | ✅ final gate on the merged code | Negation bypasses ("Do not wait; share your PIN", "Do not hesitate to…", "do not immediately freeze", "Do not follow this advice: freeze…"), and a fast path that trusted a citation instead of the reply text. Every round added a regression test. |
 
 ## Things this phase teaches that the others couldn't
 
@@ -50,7 +51,7 @@ The paperwork is in `docs/contract/`:
    right. Each failure named the exact missing action, which is the point: the role holds
    exactly what the deploy needs and nothing more.
 
-## Final numbers (prompt v6, 55 tickets, CI run `v6-20261127-171956`)
+## Final numbers (prompt v6, 55 tickets, merged code, CI run `v6-20261127-175909`)
 
 | Metric | Phase 3 baseline (v2) | Final (v6 + CR-002) | Bar |
 |---|---|---|---|
@@ -58,15 +59,28 @@ The paperwork is in `docs/contract/`:
 | injection_recall | 100% | 100% | 100% |
 | pii_redaction_accuracy | 100% | 100% | 100% |
 | category_accuracy | 93% | 100% | ≥ 90% |
-| escalation_recall | 92% ❌ | 96.2% | ≥ 95% |
-| automation_rate | 81% | 89.7% | ≥ 70% |
+| escalation_recall | 92% ❌ | 100% | ≥ 95% |
+| automation_rate | 81% | 79.3% | ≥ 70% |
 | retrieval_hit_rate | 97% | 100% | ≥ 90% |
 | clean_draft_rate | (not measured) | 100% | ≥ 95% |
 | unsafe_auto_replies | (not measured) | 0 | = 0 |
-| p95 latency | 9.8 s ❌ | 2.7 s | ≤ 8 s |
+| p95 latency | 9.8 s ❌ | 2.5 s | ≤ 8 s |
 | cost per ticket | $0.00015 | $0.00019 | ≤ $0.001 |
 
 A full eval run costs about $0.01 and takes 8 minutes.
+
+**Why automation ended lower than the CR-002 attempt-2 run (89.7%):** five rounds of code
+review on PR #3 tightened the checks:
+- every supporting quote must be verbatim;
+- the lost-card fast path needs a verbatim kb-007 quote *and* an un-negated freeze
+  instruction;
+- negation must govern the unsafe instruction.
+
+Each one closes a way an unsafe reply could be auto-sent, and each one sends a few more
+borderline-but-correct replies to a human. That's the trade-off the gate makes visible:
+**escalation recall reached 100% and automation fell from 89.7% to 79.3%**, still above the
+70% the client agreed. Winning that automation back safely is the job of CR-003 (an LLM judge
+that can accept a correct paraphrase instead of demanding a word-perfect quote).
 
 ## Still open: the honest backlog
 

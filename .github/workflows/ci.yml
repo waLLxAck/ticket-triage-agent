@@ -51,16 +51,34 @@ jobs:
       queue: max             # keep every waiting PR's eval (default keeps only one pending)
     steps:
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      # Docs-only changes can't change agent behaviour: skip the model calls (and the 8 minutes)
+      # but still report success, so the required "eval" check passes.
+      - name: Does this PR touch anything the agent runs?
+        id: scope
+        run: |
+          CHANGED=$(git diff --name-only "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}")
+          echo "$CHANGED"
+          if echo "$CHANGED" | grep -qvE '^(docs/|README\.md$)'; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::Docs-only change: eval gate not needed"
+          fi
       - uses: astral-sh/setup-uv@v7
+        if: steps.scope.outputs.run == 'true'
         with:
           enable-cache: true
       - run: uv sync --locked
+        if: steps.scope.outputs.run == 'true'
       - uses: aws-actions/configure-aws-credentials@v5
+        if: steps.scope.outputs.run == 'true'
         with:
           role-to-assume: ${{ vars.EVAL_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
       - name: Run eval suite
         id: evals
+        if: steps.scope.outputs.run == 'true'
         env:
           LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
           LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
@@ -71,19 +89,18 @@ jobs:
           uv run python -m evals.run
           echo "exit=$?" >> "$GITHUB_OUTPUT"
       - name: Comment the report on the PR
-        if: always()
+        if: always() && steps.scope.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh pr comment ${{ github.event.pull_request.number }} \
-            --body-file evals/results/latest.md --edit-last --create-if-none
+          gh pr comment ${{ github.event.pull_request.number }}             --body-file evals/results/latest.md --edit-last --create-if-none
       - uses: actions/upload-artifact@v5
-        if: always()
+        if: always() && steps.scope.outputs.run == 'true'
         with:
           name: eval-report
           path: evals/results/
       - name: Enforce the gate
-        if: steps.evals.outputs.exit != '0'
+        if: steps.scope.outputs.run == 'true' && steps.evals.outputs.exit != '0'
         run: |
           echo "::error::Eval gate failed, see the PR comment for which metric and which tickets"
           exit 1
