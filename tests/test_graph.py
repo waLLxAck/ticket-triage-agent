@@ -110,3 +110,19 @@ def test_reply_promising_a_refund_is_held_for_a_human():
     r = triage("charged twice", FakeLLM(c(Category.card_payment), draft))
     assert r.action == Action.escalate
     assert any("promise" in reason for reason in r.escalation_reasons)
+
+
+def test_rate_limiter_allows_a_burst_then_paces():
+    import time
+
+    from triage.llm import RateLimiter
+
+    limiter = RateLimiter(per_minute=600, burst=3)  # 10/s
+    start = time.monotonic()
+    for _ in range(3):
+        limiter.wait()
+    assert time.monotonic() - start < 0.05  # the burst goes straight through
+    limiter.wait()
+    limiter.wait()
+    assert time.monotonic() - start >= 0.15  # then about 0.1 s per call
+    assert limiter.waited() > 0
