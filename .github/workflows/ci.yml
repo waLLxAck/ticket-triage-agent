@@ -1,0 +1,152 @@
+# CI/CD for the triage agent.
+#
+#   pull request ──► test (lint + unit tests, free) ──► eval (real model, ~8 min, ~1p)
+#                                                        └─ posts the gate report on the PR
+#   push to main ──► test ──► deploy (build zip, terraform apply, smoke test)
+#
+# AWS access uses GitHub OIDC: the job asks GitHub for a signed identity token, AWS STS checks
+# it against the trust policy in infra/bootstrap and returns credentials that last an hour.
+# There are no AWS keys in this repo or in its secrets.
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: eu-north-1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check src tests evals scripts
+      - run: uv run ruff format --check src tests evals scripts
+      - run: uv run pytest -q
+
+  eval:
+    # The quality gate. Required for merging into main (branch protection).
+    if: github.event_name == 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write        # lets the job request the OIDC token
+      pull-requests: write   # lets it comment the report on the PR
+    concurrency:
+      group: eval            # one eval at a time: they share a Bedrock quota of 20 req/min
+      cancel-in-progress: false
+      queue: max             # keep every waiting PR's eval (default keeps only one pending)
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv sync --locked
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ vars.EVAL_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Run eval suite
+        id: evals
+        env:
+          LANGFUSE_PUBLIC_KEY: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+          LANGFUSE_SECRET_KEY: ${{ secrets.LANGFUSE_SECRET_KEY }}
+          LANGFUSE_HOST: https://cloud.langfuse.com
+          APP_ENV: ci
+        run: |
+          set +e
+          uv run python -m evals.run
+          echo "exit=$?" >> "$GITHUB_OUTPUT"
+      - name: Comment the report on the PR
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file evals/results/latest.md --edit-last --create-if-none
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: eval-report
+          path: evals/results/
+      - name: Enforce the gate
+        if: steps.evals.outputs.exit != '0'
+        run: |
+          echo "::error::Eval gate failed, see the PR comment for which metric and which tickets"
+          exit 1
+
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: deploy
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TF_VAR_artifacts_bucket: ${{ vars.TF_STATE_BUCKET }}
+      TF_VAR_langfuse_public_key: ${{ secrets.LANGFUSE_PUBLIC_KEY }}
+      TF_VAR_langfuse_secret_key: ${{ secrets.LANGFUSE_SECRET_KEY }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+    steps:
+      # Concurrency runs one deploy at a time but doesn't guarantee push order. If a newer
+      # commit already reached main, don't let this older run overwrite its deployment.
+      - name: Skip if this commit is no longer the head of main
+        id: head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          HEAD=$(gh api "repos/${{ github.repository }}/commits/main" -q .sha)
+          if [ "$HEAD" != "${{ github.sha }}" ]; then
+            echo "::notice::main has moved on to $HEAD; skipping the deploy of ${{ github.sha }}"
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v5
+        if: steps.head.outputs.stale != 'true'
+      - uses: astral-sh/setup-uv@v7
+        if: steps.head.outputs.stale != 'true'
+        with:
+          enable-cache: true
+      - uses: hashicorp/setup-terraform@v3
+        if: steps.head.outputs.stale != 'true'
+        with:
+          terraform_version: 1.17.2
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v5
+        if: steps.head.outputs.stale != 'true'
+        with:
+          role-to-assume: ${{ vars.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Build Lambda package
+        if: steps.head.outputs.stale != 'true'
+        run: uv run python scripts/build_lambda.py
+      - name: Terraform apply
+        if: steps.head.outputs.stale != 'true'
+        working-directory: infra/app
+        run: |
+          terraform init -input=false -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+          terraform apply -auto-approve -input=false
+      - name: Smoke test the deployed API
+        if: steps.head.outputs.stale != 'true'
+        working-directory: infra/app
+        run: |
+          URL=$(terraform output -raw api_url)
+          KEY=$(terraform output -raw api_key)
+          echo "::add-mask::$KEY"
+          python3 ../../scripts/smoke_test.py "$URL" "$KEY"

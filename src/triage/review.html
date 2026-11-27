@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme Pay · Review queue (demo)</title>
+<style>
+  :root { --bg:#f6f5f2; --card:#fff; --ink:#1d1d1b; --muted:#6b6a65; --line:#e3e1da; --accent:#2f5d50; --warn:#9a4b16; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151514; --card:#1f1f1d; --ink:#ecebe6; --muted:#a3a29b; --line:#33332f; --accent:#7fb8a4; --warn:#e2a36f; } }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 system-ui, sans-serif; }
+  main { max-width:860px; margin:0 auto; padding:24px 16px 64px; }
+  h1 { font-size:20px; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; }
+  .bar { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px; }
+  input, textarea, button { font:inherit; color:inherit; }
+  input, textarea { background:var(--card); border:1px solid var(--line); border-radius:8px; padding:8px 10px; }
+  input { flex:1; min-width:200px; }
+  textarea { width:100%; min-height:110px; resize:vertical; }
+  button { background:var(--accent); color:var(--bg); border:0; border-radius:8px; padding:8px 14px; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .meta { display:flex; gap:8px; flex-wrap:wrap; font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .tag { border:1px solid var(--line); border-radius:999px; padding:1px 8px; }
+  .reasons { color:var(--warn); font-size:14px; margin:6px 0 10px; padding-left:18px; }
+  .ticket { white-space:pre-wrap; margin:0 0 10px; }
+  details { font-size:13px; color:var(--muted); margin-top:8px; }
+  .empty { color:var(--muted); }
+  .row { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Review queue</h1>
+  <p class="sub">Acme Pay is fictional. These tickets were escalated by the triage agent's policy gate and need a human decision before any reply is sent.</p>
+  <div class="bar">
+    <input id="key" type="password" placeholder="API key" autocomplete="off">
+    <button id="load">Load queue</button>
+  </div>
+  <div id="list"><p class="empty">Enter the API key to load escalated tickets.</p></div>
+</main>
+<script>
+const $ = (s) => document.querySelector(s);
+const keyBox = $("#key");
+try { keyBox.value = sessionStorage.getItem("triage-key") || ""; } catch (e) {}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { ...opts, headers: { "content-type": "application/json", "x-api-key": keyBox.value, ...(opts.headers || {}) } });
+  if (!res.ok) throw new Error(res.status + " " + (await res.text()));
+  return res.json();
+}
+
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;", "'":"&#39;" }[c])); }
+
+function card(t) {
+  const r = t.result || {};
+  const el = document.createElement("div");
+  el.className = "card";
+  el.innerHTML = `
+    <div class="meta"><span class="tag">${esc(t.ticket_id)}</span><span class="tag">${esc(r.category)}</span>
+      <span class="tag">urgency ${esc(r.urgency)}</span><span class="tag">confidence ${(r.confidence ?? 0).toFixed(2)}</span>
+      ${(t.pii_redacted || []).length ? `<span class="tag">PII removed: ${esc(t.pii_redacted.join(", "))}</span>` : ""}</div>
+    <p class="ticket">${esc(t.text)}</p>
+    <ul class="reasons">${(r.escalation_reasons || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ul>
+    <textarea>${esc(r.reply)}</textarea>
+    <div class="row"><button data-act="approve">Approve and send</button><button class="ghost" data-act="edit">Send my edited reply</button></div>
+    <details><summary>Decision trace</summary><ol>${(r.decision_trace || []).map((x) => `<li>${esc(x)}</li>`).join("")}</ol></details>`;
+  el.querySelectorAll("button").forEach((b) => b.onclick = async () => {
+    const reply = el.querySelector("textarea").value;
+    try {
+      await api(`/tickets/${encodeURIComponent(t.ticket_id)}/review`, { method: "POST", body: JSON.stringify({ reply, edited: b.dataset.act === "edit" || reply !== r.reply }) });
+      el.innerHTML = `<p class="empty">${esc(t.ticket_id)}: reply sent.</p>`;
+    } catch (e) { alert(e.message); }
+  });
+  return el;
+}
+
+$("#load").onclick = async () => {
+  try { sessionStorage.setItem("triage-key", keyBox.value); } catch (e) {}
+  const list = $("#list");
+  list.innerHTML = '<p class="empty">Loading…</p>';
+  try {
+    const items = await api("/review");
+    list.innerHTML = items.length ? "" : '<p class="empty">Nothing waiting for review.</p>';
+    items.forEach((t) => list.appendChild(card(t)));
+  } catch (e) { list.innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+};
+</script>
+</body>
+</html>

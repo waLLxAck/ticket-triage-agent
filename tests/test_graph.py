@@ -110,3 +110,25 @@ def test_reply_promising_a_refund_is_held_for_a_human():
     r = triage("charged twice", FakeLLM(c(Category.card_payment), draft))
     assert r.action == Action.escalate
     assert any("promise" in reason for reason in r.escalation_reasons)
+
+
+def test_rate_limiter_allows_a_burst_then_paces():
+    import pytest
+
+    from triage.llm import RateLimiter
+
+    clock = {"t": 0.0}
+
+    def sleep(seconds):
+        clock["t"] += seconds  # a fake clock: deterministic, no real waiting
+
+    limiter = RateLimiter(per_minute=60, burst=3, clock=lambda: clock["t"], sleep=sleep)
+    for _ in range(3):
+        limiter.wait()
+    assert limiter.waited() == 0  # the burst goes straight through
+    limiter.wait()
+    assert limiter.waited() == pytest.approx(1.0)  # then 1 call per second
+    limiter.wait()
+    assert limiter.waited() == pytest.approx(2.0)
+    with pytest.raises(ValueError):
+        RateLimiter(per_minute=0)

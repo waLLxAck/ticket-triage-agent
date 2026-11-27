@@ -35,28 +35,39 @@ class TriageLLM(Protocol):
 
 
 class RateLimiter:
-    """Spaces out requests to stay under a requests-per-minute quota, shared across threads.
+    """Token bucket that keeps requests under a requests-per-minute quota, shared across threads.
 
     Bedrock quotas are per account, per Region, per model. This account gets 20 requests a
     minute for Nova Lite on demand. Going over it returns ThrottlingException. Retries help with
     a short spike, but a steady eval run or a traffic burst needs pacing on the client side.
-    (In Phase 4, SQS plus a capped worker concurrency does this job in production.)
+
+    The bucket holds up to `burst` tokens and refills at `per_minute`. A single ticket's 3
+    calls therefore go out back to back, while a steady stream averages out to the quota. (The
+    first version spaced *every* call evenly, so one ticket in Lambda took about 15 s of
+    waiting for 2 s of work.) In production, SQS plus a capped worker concurrency keeps the
+    aggregate rate within the quota.
     """
 
-    def __init__(self, per_minute: float):
-        self.interval = 60.0 / per_minute
+    def __init__(self, per_minute: float, burst: int = 3, clock=time.monotonic, sleep=time.sleep):
+        if per_minute <= 0 or burst < 1:
+            raise ValueError(f"need per_minute > 0 and burst >= 1, got {per_minute}, {burst}")
+        self._clock, self._sleep = clock, sleep
+        self.rate = per_minute / 60.0  # tokens per second
+        self.capacity = float(burst)
+        self._tokens = float(burst)
+        self._updated = clock()
         self._lock = threading.Lock()
-        self._next_slot = 0.0
         self._local = threading.local()
 
     def wait(self) -> None:
         with self._lock:
-            now = time.monotonic()
-            slot = max(now, self._next_slot)
-            self._next_slot = slot + self.interval
-        delay = slot - now
+            now = self._clock()
+            self._tokens = min(self.capacity, self._tokens + (now - self._updated) * self.rate)
+            self._updated = now
+            self._tokens -= 1  # take a token now; if that goes negative, wait for the debt
+            delay = -self._tokens / self.rate if self._tokens < 0 else 0.0
         if delay > 0:
-            time.sleep(delay)
+            self._sleep(delay)
         self._local.waited = self.waited() + delay
 
     def waited(self) -> float:
