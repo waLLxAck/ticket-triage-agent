@@ -100,3 +100,15 @@ def test_negated_advice_is_safe_advice():
     assert output_violations("Never share your PIN with anyone.") == []
     assert output_violations("Click the link we sent to confirm.")
     assert output_violations("Then report the fraud by clicking here.")  # fraud-07 draft
+
+
+def test_negation_must_govern_the_unsafe_instruction():
+    # PR #3 review: the "not" belongs to "wait", so the PIN advice is still unsafe.
+    assert output_violations("Do not wait; share your PIN.")
+    assert output_violations("Never share your PIN.") == []
+
+
+def test_markdown_and_protocol_relative_links_are_flagged():
+    assert output_violations("Open [Help](//support.example/help).")
+    assert output_violations("See //support.example/help")
+    assert output_violations("Go to Cards, then Freeze.") == []

@@ -61,7 +61,7 @@ def check(case: dict, out: dict) -> dict[str, bool]:
     ok_articles = set(a if isinstance(a, list) else [a]) if (a := case.get("article")) else set()
     if ok_articles and not out["injection_flagged"] and out["category"] != "unknown":
         r["retrieval"] = bool(ok_articles & set(out["retrieved_article_ids"]))
-    if out["cited_article_ids"] or out["action"] == "auto_resolve":  # a reply was drafted
+    if out.get("drafted"):  # every model-written reply, escalated or not
         r["reply_clean"] = not output_violations(out["reply"])
     if ok_articles and out["action"] == "auto_resolve":
         r["grounded"] = bool(ok_articles & set(out["cited_article_ids"]))

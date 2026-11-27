@@ -100,6 +100,7 @@ class TriageResult(BaseModel):
     retrieved_article_ids: list[str] = []
     pii_redacted: list[str] = []  # types of personal data removed before the LLM saw the ticket
     injection_flagged: bool = False
+    drafted: bool = False  # True if the model wrote `reply` (False = the fixed holding reply)
     decision_trace: list[str]  # human-readable log of every step, for auditors and debugging
     # Operational metadata: what it cost, how long it took, which model and prompt produced it.
     model_id: str = ""

@@ -30,10 +30,12 @@ The paperwork is in `docs/contract/`:
 1. **A metric only protects you from what it measures.** CR-001's made-up link passed every
    gate, because no metric looked at links. After a production finding, the first step is to
    add the check that would have caught it, and only then fix it.
-2. **Guards can be wrong too.** The output guard over-blocked correct safety advice.
-   `clean_draft_rate` (does the *prompt* produce clean drafts?) and `unsafe_auto_replies` (did
-   the *guard* let anything bad out?, which must be 0) measure the two layers separately, so a
-   broken guard shows up as a number, not as a mystery.
+2. **Guards can be wrong too.** The output guard over-blocked correct safety advice, and that
+   showed up because `clean_draft_rate` dropped: drafts the *prompt* produced were judged
+   unclean. A caution from code review: `unsafe_auto_replies` uses the same
+   `output_violations` function as the policy, so a value of 0 only proves the policy
+   *enforces* the check. It can't reveal an unsafe reply the check doesn't recognise. Finding
+   those needs labelled examples in the eval set, or a second, independent checker.
 3. **Prompts drift, structure holds.** The made-up-fee bug was fixed by a prompt in v3 and came
    back in v5 after an unrelated prompt edit. Asking for `supporting_quotes` and checking them
    in code (`knowledge.quote_is_verbatim`) is a structural fix: the model can't make up a quote

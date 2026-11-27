@@ -20,11 +20,14 @@ LOST_CARD_ARTICLE = "kb-007"
 
 
 def lost_card_fast_path(c: Classification, d: Draft | None, scam_signals, output_problems) -> bool:
+    """The draft must actually give the freeze steps: at least one supporting quote must be
+    verbatim from kb-007. Citing kb-007 alone isn't enough (a code-review finding: a declined-card
+    answer citing kb-001 *and* kb-007 would otherwise skip the urgency rule)."""
     return (
         c.category == Category.card_payment
         and d is not None
         and d.answerable
-        and LOST_CARD_ARTICLE in d.cited_article_ids
+        and any(quote_is_verbatim(q, [LOST_CARD_ARTICLE]) for q in d.supporting_quotes)
         and not scam_signals
         and not output_problems
     )
@@ -55,10 +58,15 @@ def decide(
         reasons.append("help centre doesn't cover it")
     if draft is not None and draft.answerable and not draft.cited_article_ids:
         reasons.append("reply cites no article (possible hallucination)")
-    elif (
-        draft is not None
-        and draft.answerable
-        and not any(quote_is_verbatim(q, draft.cited_article_ids) for q in draft.supporting_quotes)
-    ):
-        reasons.append("reply has no verbatim quote from its cited articles")
+    elif draft is not None and draft.answerable and not draft.supporting_quotes:
+        reasons.append("reply has no supporting quote")
+    elif draft is not None and draft.answerable:
+        # Every quote must be real: one valid quote can't vouch for an invented second one.
+        bad = [
+            q for q in draft.supporting_quotes if not quote_is_verbatim(q, draft.cited_article_ids)
+        ]
+        if bad:
+            reasons.append(
+                f"{len(bad)} supporting quote(s) not found verbatim in the cited articles"
+            )
     return (Action.escalate if reasons else Action.auto_resolve), reasons

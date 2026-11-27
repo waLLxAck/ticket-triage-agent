@@ -117,10 +117,18 @@ _UNSAFE_ADVICE = re.compile(
 
 # CR-001: the model invented "https://example.com/kb-002" in a live reply. A link in a bank's
 # message is a phishing pattern customers are trained to distrust, and a made-up one is worse.
-_LINKS_OR_IDS = re.compile(r"https?://\S+|\bwww\.\S+|\[?\bkb-\d{3}\b\]?", re.IGNORECASE)
+_LINKS_OR_IDS = re.compile(
+    r"https?://\S+|(?<![\w:])//[\w.-]+\.\w+\S*|\bwww\.\S+|\[[^\]]*\]\([^)]*\)|\[?\bkb-\d{3}\b\]?",
+    re.IGNORECASE,
+)
 
 
-_NEGATION = re.compile(r"\b(not|never|don't|do not|nobody|no one|avoid)\b[^.!?]*$")
+# The negation must belong to the matched instruction: same clause (no punctuation in between)
+# and at most two words between them. "Never share your PIN" is safe; in "Do not wait; share
+# your PIN" the "not" belongs to "wait", so the instruction still counts as unsafe.
+_NEGATION = re.compile(
+    r"\b(not|never|don't|do not|nobody|no one|avoid)\b(\s+\w+){0,2}\s*$", re.IGNORECASE
+)
 
 
 def output_violations(reply: str) -> list[str]:

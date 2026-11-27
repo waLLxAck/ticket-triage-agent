@@ -28,7 +28,9 @@
    escalation recall dropped below the 95% bar. The gate's PR comment named the tickets.
 3. **Second attempt (scoped):** keep the urgency rule, and add a narrow, deterministic exception:
    - category is `card_payment`;
-   - the draft is answerable and cites **only** the lost/stolen-card article (kb-007);
+   - the draft is answerable and includes at least one supporting quote copied word for word
+     from the lost/stolen-card article (kb-007). Citing kb-007 alone isn't enough, and every
+     other quote must also be verbatim (code review on PR #3);
    - no scam signals, no output-check problems.
 
    Fraud is already decided earlier (`fraud_report` always goes to a human), so "stolen card

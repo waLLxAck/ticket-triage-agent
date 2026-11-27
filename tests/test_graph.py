@@ -149,7 +149,7 @@ def test_answer_without_a_verbatim_quote_is_escalated():
     )
     r = triage("fee for receiving money?", FakeLLM(c(Category.fees_limits), draft))
     assert r.action == Action.escalate
-    assert any("verbatim quote" in reason for reason in r.escalation_reasons)
+    assert any("verbatim" in reason for reason in r.escalation_reasons)
 
 
 FREEZE_DRAFT = Draft(
@@ -187,4 +187,30 @@ def test_cr002_fast_path_never_applies_to_fraud():
         "Card stolen, payments I don't recognise",
         FakeLLM(c(Category.fraud_report, urgency=Urgency.high), FREEZE_DRAFT),
     )
+    assert r.action == Action.escalate
+
+
+def test_cr002_citing_kb007_without_freeze_quote_is_not_fast_pathed():
+    # PR #3 review: a declined-card answer citing kb-001 and kb-007 must not skip the urgency rule.
+    draft = Draft(
+        answerable=True,
+        reply="Check Cards, then Card status.",
+        cited_article_ids=["kb-001", "kb-007"],
+        supporting_quotes=["Check Cards → Card status in the app."],
+    )
+    r = triage("urgent decline", FakeLLM(c(Category.card_payment, urgency=Urgency.high), draft))
+    assert r.action == Action.escalate and "high urgency" in r.escalation_reasons
+
+
+def test_every_supporting_quote_must_be_verbatim():
+    draft = Draft(
+        answerable=True,
+        reply="Freeze it. Also, fees are zero.",
+        cited_article_ids=["kb-007"],
+        supporting_quotes=[
+            "Freeze the card straight away under Cards → Freeze.",
+            "Fees are £0 for everyone.",
+        ],
+    )
+    r = triage("lost card", FakeLLM(c(Category.card_payment), draft))
     assert r.action == Action.escalate
