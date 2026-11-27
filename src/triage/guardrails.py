@@ -1,0 +1,100 @@
+"""Guardrails: deterministic checks around the LLM.
+
+Three layers, each cheap and testable without a model:
+
+1. **Input redaction**: remove personal data *before* it reaches the LLM or the tracing tool.
+   GDPR's data-minimisation principle: don't send a third party what it doesn't need. The model
+   doesn't need the card number to know the ticket is about a double charge.
+2. **Injection heuristics**: catch the obvious "ignore your instructions" attacks with patterns.
+   It's free and instant, but easy to get around, which is why an LLM check runs as well (see
+   `llm.check_injection`). That's defence in depth.
+3. **Output checks**: the reply must not leak personal data or promise things only a human may
+   promise (refunds, compensation). These are the failures that become complaints to the
+   Financial Ombudsman.
+"""
+
+import re
+
+# --- 1. PII redaction --------------------------------------------------------------------------
+
+# Order matters: IBANs contain digit runs that would otherwise look like account numbers.
+_PATTERNS: list[tuple[str, re.Pattern]] = [
+    ("IBAN", re.compile(r"\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){3,7}(?: ?[A-Z0-9]{1,3})?\b")),
+    ("CARD", re.compile(r"\b(?:\d[ -]?){12,18}\d\b")),
+    ("EMAIL", re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")),
+    ("PHONE", re.compile(r"(?:\+44\s?7\d{3}|\b07\d{3})\s?\d{3}\s?\d{3}\b")),
+    ("SORT_CODE", re.compile(r"\b\d{2}-\d{2}-\d{2}\b")),
+    ("ACCOUNT", re.compile(r"\b\d{8}\b")),
+]
+
+
+def _luhn_ok(digits: str) -> bool:
+    """Card numbers end in a check digit (the Luhn algorithm). This tells a real card number
+    apart from, say, a 16-digit order reference, so we don't over-redact."""
+    total, parity = 0, len(digits) % 2
+    for i, ch in enumerate(digits):
+        d = int(ch)
+        if i % 2 == parity:
+            d = d * 2 - 9 if d > 4 else d * 2
+        total += d
+    return total % 10 == 0
+
+
+def redact(text: str) -> tuple[str, list[str]]:
+    """Return (text with PII replaced by [TYPE] placeholders, list of types found)."""
+    found: list[str] = []
+
+    for label, pattern in _PATTERNS:
+
+        def replace(m: re.Match, label=label) -> str:
+            if label == "CARD" and not _luhn_ok(re.sub(r"\D", "", m.group())):
+                return m.group()  # not a real card number, leave it alone
+            found.append(label)
+            return f"[{label}]"
+
+        text = pattern.sub(replace, text)
+    return text, found
+
+
+# --- 2. Prompt-injection heuristics ------------------------------------------------------------
+
+_INJECTION_PATTERNS = [
+    r"ignore (all |any |the |your |previous |prior |above )+(instructions|rules|prompts?)",
+    r"disregard (all |any |the |your |previous |prior )*(instructions|rules|guidelines)",
+    r"(reveal|show|print|repeat) (me )?(your|the) (system )?(prompt|instructions)",
+    r"\byou are now\b",
+    r"\b(developer|admin|god|jailbreak|DAN) mode\b",
+    r"\bact as (an? )?(admin|supervisor|manager|system)\b",
+    r"\bnew instructions?\b",
+    r"</?(system|ticket|articles)>",  # trying to break out of our XML delimiters
+    r"\b(approve|authori[sz]e|confirm|process) (my|the|this) (refund|compensation|payment)\b",
+]
+_INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
+
+
+def injection_heuristics(text: str) -> list[str]:
+    """Return the suspicious phrases found (empty list = nothing obvious)."""
+    return [m.group() for m in _INJECTION_RE.finditer(text)]
+
+
+# --- 3. Output checks --------------------------------------------------------------------------
+
+_FORBIDDEN_PROMISES = re.compile(
+    r"\b(refund|compensation|payment) (has been|is being|was|is) "
+    r"(approved|processed|issued|authori[sz]ed|sent)\b"
+    r"|\bI(?:'ve| have) (refunded|approved|reversed|credited)\b"
+    r"|\bwe(?:'ll| will) (refund|compensate|credit) you\b"
+    r"|\bguarantee\b",
+    re.IGNORECASE,
+)
+
+
+def output_violations(reply: str) -> list[str]:
+    """Problems with a drafted reply that mean a human must look at it before it's sent."""
+    problems = []
+    _, pii = redact(reply)
+    if pii:
+        problems.append(f"reply contains personal data ({', '.join(sorted(set(pii)))})")
+    if m := _FORBIDDEN_PROMISES.search(reply):
+        problems.append(f"reply makes a promise only a human may make: '{m.group()}'")
+    return problems

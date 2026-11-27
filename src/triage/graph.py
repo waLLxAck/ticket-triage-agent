@@ -19,14 +19,16 @@ from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
-from triage import knowledge, policy
+from triage import guardrails, knowledge, policy
 from triage.llm import TriageLLM
-from triage.schemas import Category, Classification, Draft, TriageResult
+from triage.schemas import Category, Classification, Draft, TriageResult, Urgency
 
 
 class State(TypedDict, total=False):
     ticket_id: str
-    text: str
+    text: str  # raw on input; replaced by the redacted version in the first node
+    pii_found: list[str]
+    injection_reasons: list[str]
     classification: Classification
     articles: list[knowledge.Article]
     draft: Draft
@@ -34,7 +36,31 @@ class State(TypedDict, total=False):
     trace: list[str]
 
 
+NOT_CLASSIFIED = Classification(
+    category=Category.unknown,
+    urgency=Urgency.high,
+    confidence=0.0,
+    reasoning="not classified: blocked by the injection guard",
+)
+
+
 def build_graph(llm: TriageLLM):
+    def redact(state: State) -> State:
+        clean, found = guardrails.redact(state["text"])
+        note = f"redacted {', '.join(found)}" if found else "no personal data found"
+        return {"text": clean, "pii_found": found, "trace": state["trace"] + [f"redact: {note}"]}
+
+    def guard(state: State) -> State:
+        # Layer 1: free regex heuristics. Layer 2: an LLM judge for subtler attempts.
+        reasons = [
+            f"suspicious phrase '{p}'" for p in guardrails.injection_heuristics(state["text"])
+        ]
+        check = llm.check_injection(state["text"])
+        if check.is_injection:
+            reasons.append(f"LLM guard: {check.reason}")
+        verdict = "BLOCKED: " + "; ".join(reasons) if reasons else "clean"
+        return {"injection_reasons": reasons, "trace": state["trace"] + [f"guard: {verdict}"]}
+
     def classify(state: State) -> State:
         c = llm.classify(state["text"])
         return {
@@ -59,8 +85,13 @@ def build_graph(llm: TriageLLM):
         }
 
     def decide(state: State) -> State:
-        c, d = state["classification"], state.get("draft")
-        action, reasons = policy.decide(c, d)
+        c, d = state.get("classification", NOT_CLASSIFIED), state.get("draft")
+        action, reasons = policy.decide(
+            c,
+            d,
+            injection_reasons=state.get("injection_reasons", []),
+            output_problems=guardrails.output_violations(d.reply) if d else [],
+        )
         trace = state["trace"] + [
             f"policy: {action}" + (f" because {'; '.join(reasons)}" if reasons else "")
         ]
@@ -74,19 +105,28 @@ def build_graph(llm: TriageLLM):
             reply=d.reply if d else "Thanks for getting in touch. A specialist will reply shortly.",
             cited_article_ids=d.cited_article_ids if d else [],
             missing_info=d.missing_info if d else [],
+            pii_redacted=state.get("pii_found", []),
+            injection_flagged=bool(state.get("injection_reasons")),
             decision_trace=trace,
         )
         return {"result": result, "trace": trace}
+
+    def after_guard(state: State) -> str:
+        return "policy" if state["injection_reasons"] else "classify"
 
     def after_classify(state: State) -> str:
         return "policy" if state["classification"].category == Category.unknown else "retrieve"
 
     g = StateGraph(State)
+    g.add_node("redact", redact)
+    g.add_node("guard", guard)
     g.add_node("classify", classify)
     g.add_node("retrieve", retrieve)
     g.add_node("draft", draft)
     g.add_node("policy", decide)
-    g.add_edge(START, "classify")
+    g.add_edge(START, "redact")
+    g.add_edge("redact", "guard")
+    g.add_conditional_edges("guard", after_guard, ["classify", "policy"])
     g.add_conditional_edges("classify", after_classify, ["retrieve", "policy"])
     g.add_edge("retrieve", "draft")
     g.add_edge("draft", "policy")

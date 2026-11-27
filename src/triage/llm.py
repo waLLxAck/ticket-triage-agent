@@ -11,12 +11,14 @@ from typing import Protocol
 from langchain_aws import ChatBedrockConverse
 
 from triage.knowledge import Article
-from triage.prompts import CLASSIFY_SYSTEM, DRAFT_SYSTEM, format_articles
-from triage.schemas import Classification, Draft
+from triage.prompts import CLASSIFY_SYSTEM, DRAFT_SYSTEM, GUARD_SYSTEM, format_articles
+from triage.schemas import Classification, Draft, InjectionCheck
 
 
 class TriageLLM(Protocol):
     model_id: str
+
+    def check_injection(self, ticket_text: str, config=None) -> InjectionCheck: ...
 
     def classify(self, ticket_text: str, config=None) -> Classification: ...
 
@@ -44,8 +46,15 @@ class BedrockLLM:
             temperature=0,  # triage should be repeatable, not creative
             max_tokens=800,
         )
+        self._guard = chat.with_structured_output(InjectionCheck)
         self._classifier = chat.with_structured_output(Classification)
         self._drafter = chat.with_structured_output(Draft)
+
+    def check_injection(self, ticket_text: str, config=None) -> InjectionCheck:
+        return self._guard.invoke(
+            [("system", GUARD_SYSTEM), ("human", f"<message>\n{ticket_text}\n</message>")],
+            config=config,
+        )
 
     def classify(self, ticket_text: str, config=None) -> Classification:
         return self._classifier.invoke(

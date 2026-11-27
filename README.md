@@ -8,8 +8,8 @@ Every change is gated by an eval suite in CI.
 
 ```
 ticket → API (FastAPI on Lambda) → SQS → worker Lambda
-           → redact PII → injection guard → LangGraph agent (Bedrock / Amazon Nova)
-           → policy gate → auto-resolve | human review
+           → redact PII → injection guard (regex + LLM judge) → LangGraph agent (Bedrock / Nova)
+           → policy gate (rules + output checks) → auto-resolve | human review
          → DynamoDB (state) · Langfuse (traces, costs, eval scores)
 ```
 
@@ -24,4 +24,4 @@ ticket → API (FastAPI on Lambda) → SQS → worker Lambda
 | Infrastructure | Terraform | open source |
 | CI/CD | GitHub Actions + AWS OIDC | free on public repos |
 
-Learning notes for each phase are in [`docs/guide/`](docs/guide/).
+Status: Phase 0 accounts · Phase 1 agent · Phase 2 guardrails are done. Learning notes for each phase are in [`docs/guide/`](docs/guide/).
