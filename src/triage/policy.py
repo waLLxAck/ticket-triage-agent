@@ -34,7 +34,9 @@ def tells_customer_to_freeze(reply: str) -> bool:
     negation-just-before-the-verb rules. Any negation word anywhere in the sentence disqualifies
     it. A false "no" here only sends a ticket to a human, which costs automation, not safety.
     """
-    sentences = re.split(r"[.!?;:\n]+", reply)
+    # Whole sentences only: a colon or semicolon must not separate a negation from its
+    # instruction ("Do not follow this advice: freeze your card", code review round 5).
+    sentences = re.split(r"[.!?\n]+", reply)
     return any(FREEZE_INSTRUCTION.search(s) and not _ANY_NEGATION.search(s) for s in sentences)
 
 
